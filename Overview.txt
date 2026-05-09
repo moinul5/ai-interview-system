@@ -1,0 +1,22 @@
+Resume upload নিবে
+
+Endpoint:
+POST /resume/analyze
+
+PDF resume read করবে
+Resume file থেকে text extract করবে।
+DOCX resume read করতে পারবে
+যদি .docx upload করো, সেটাও read করার code আছে।
+Resume analysis response দিবে
+এখন free/fake AI response দিচ্ছে:
+ATS Score
+Strengths
+Weaknesses
+Missing Skills
+Suggestions
+
+Swagger দিয়ে test করা যাবে
+
+http://127.0.0.1:8000/docs
+MySQL database connected আছে
+Database connection working, কিন্তু resume analysis result এখনো database এ save হচ্ছে না।
