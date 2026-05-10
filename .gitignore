@@ -1,7 +1,21 @@
+# Environment — NEVER commit these
 .env
+Backend/.env
+frontend/.env
+
+# Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Node
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+
+# Editors
 .idea/
 .vscode/

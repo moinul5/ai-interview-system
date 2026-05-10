@@ -16,30 +16,10 @@ import { loginUser, logoutUser, getCurrentUser } from "../services/authService";
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser]       = useState(null);
-  const [token, setToken]     = useState(localStorage.getItem("access_token") || null);
-  const [loading, setLoading] = useState(true); // true while restoring session
-
-  // ─── Restore session on app load ──────────────────────────────────────────
-  useEffect(() => {
-    const restoreSession = async () => {
-      const storedToken = localStorage.getItem("access_token");
-      if (storedToken) {
-        try {
-          // TODO (Backend): GET /auth/me — fetch current user with stored token
-          const currentUser = await getCurrentUser();
-          setUser(currentUser);
-          setToken(storedToken);
-        } catch {
-          // Token is invalid or expired — clear storage
-          localStorage.removeItem("access_token");
-          setToken(null);
-        }
-      }
-      setLoading(false);
-    };
-    restoreSession();
-  }, []);
+  // Bypassing auth: always provide a dummy user
+  const [user, setUser]       = useState({ full_name: "Test User", email: "test@example.com", id: 1 });
+  const [token, setToken]     = useState("dummy_token_for_now");
+  const [loading, setLoading] = useState(false); // No loading needed
 
   // ─── Login ────────────────────────────────────────────────────────────────
   /**

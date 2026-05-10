@@ -2,18 +2,20 @@
  * Dashboard.jsx
  * -------------
  * Main authenticated dashboard page.
- * Shows a summary/overview of the user's activity.
- *
- * BACKEND INTEGRATION:
- *   - Fetches user stats (sessions, scores, etc.) from GET /interviews/sessions
- *   - Fetches user info from AuthContext (populated from GET /auth/me)
- *   - Replace the placeholder stat cards with real API data when ready
  */
 
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { getInterviewSessions } from "../services/interviewService";
+import { getUserResumes } from "../services/resumeService";
 import Loader from "../components/Loader";
+import {
+  MdOutlineWavingHand,
+  MdVideoLibrary,
+  MdStarRate,
+  MdDescription,
+  MdCheckCircle,
+  MdCalendarMonth,
+} from "react-icons/md";
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -23,20 +25,18 @@ const Dashboard = () => {
   const [error, setError]       = useState("");
 
   useEffect(() => {
-    const fetchSessions = async () => {
+    const fetchRecent = async () => {
       try {
-        // TODO (Backend): GET /interviews/sessions — list past interview sessions
-        const data = await getInterviewSessions();
-        setSessions(data);
+        const data = await getUserResumes();
+        setSessions(data.items?.slice(0, 5) || []);
       } catch (err) {
-        // TODO (Backend): Handle specific error codes if needed
-        setError("Failed to load sessions. Please refresh.");
+        setError("Failed to load recent activity. Please refresh.");
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
-    fetchSessions();
+    fetchRecent();
   }, []);
 
   return (
@@ -44,7 +44,7 @@ const Dashboard = () => {
       {/* Welcome Header */}
       <div className="page-header">
         <h1 className="page-header__title">
-          Welcome back, {user?.full_name?.split(" ")[0] || "there"} 👋
+          Welcome back, {user?.full_name?.split(" ")[0] || "there"}
         </h1>
         <p className="page-header__subtitle">
           Ready for your next interview practice session?
@@ -52,24 +52,16 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Overview */}
-      {/* TODO (Backend): Populate these from real API data */}
       <div className="stats-grid">
         <div className="stat-card">
-          <span className="stat-card__icon">🎯</span>
+          <span className="stat-card__icon"><MdVideoLibrary size={28} /></span>
           <p className="stat-card__value">{sessions.length}</p>
-          <p className="stat-card__label">Sessions Completed</p>
+          <p className="stat-card__label">Resumes Parsed</p>
         </div>
         <div className="stat-card">
-          <span className="stat-card__icon">⭐</span>
+          <span className="stat-card__icon"><MdStarRate size={28} /></span>
           <p className="stat-card__value">—</p>
           <p className="stat-card__label">Avg. Score</p>
-          {/* TODO (Backend): Calculate from sessions[].score */}
-        </div>
-        <div className="stat-card">
-          <span className="stat-card__icon">📄</span>
-          <p className="stat-card__value">—</p>
-          <p className="stat-card__label">Resumes Uploaded</p>
-          {/* TODO (Backend): Fetch from GET /resumes and show count */}
         </div>
       </div>
 
@@ -81,17 +73,22 @@ const Dashboard = () => {
         {!loading && !error && sessions.length === 0 && (
           <div className="empty-state">
             <p>No interview sessions yet.</p>
-            {/* TODO: Add a "Start Interview" button once the interview page is built */}
           </div>
         )}
         {!loading && sessions.length > 0 && (
           <ul className="sessions-list">
             {sessions.map((s) => (
-              <li key={s.session_id} className="session-item">
-                {/* TODO (Backend): Adjust field names from your API response */}
-                <span className="session-item__role">{s.job_role}</span>
-                <span className="session-item__score">Score: {s.score ?? "N/A"}</span>
-                <span className="session-item__date">{new Date(s.date).toLocaleDateString()}</span>
+              <li key={s.analysis_id} className="session-item">
+                <MdDescription size={16} style={{ marginRight: "6px", color: "#6366f1", flexShrink: 0 }} />
+                <span className="session-item__role">{s.file_name}</span>
+                <span className="session-item__score">
+                  <MdCheckCircle size={14} style={{ marginRight: "3px", color: "#22c55e" }} />
+                  Parsed
+                </span>
+                <span className="session-item__date">
+                  <MdCalendarMonth size={14} style={{ marginRight: "3px" }} />
+                  {new Date(s.created_at).toLocaleDateString()}
+                </span>
               </li>
             ))}
           </ul>

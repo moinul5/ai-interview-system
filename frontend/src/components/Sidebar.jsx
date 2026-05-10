@@ -6,18 +6,22 @@
  */
 
 import { NavLink } from "react-router-dom";
+import {
+  MdDashboard,
+  MdDescription,
+  MdPerson,
+  MdSmartToy,
+} from "react-icons/md";
 
 const navItems = [
-  { label: "Dashboard",  to: "/dashboard", icon: "🏠" },
-  { label: "Resume",     to: "/resume",    icon: "📄" },
-  { label: "Profile",    to: "/profile",   icon: "👤" },
-  // TODO: Add more sections (e.g., /interview, /analytics) when pages are built
+  { label: "Dashboard", to: "/dashboard", icon: <MdDashboard size={20} /> },
+  { label: "Resume",    to: "/resume",    icon: <MdDescription size={20} /> },
+  { label: "Profile",   to: "/profile",   icon: <MdPerson size={20} /> },
 ];
 
 const Sidebar = () => {
   return (
     <aside className="sidebar">
-      <div className="sidebar__logo">🎯 InterviewAI</div>
 
       <nav className="sidebar__nav">
         <ul className="sidebar__list">

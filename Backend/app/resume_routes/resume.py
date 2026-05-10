@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from sqlalchemy import text
 
@@ -141,6 +142,26 @@ def list_resume_analyses(
         items.append(entry)
 
     return {"success": True, "count": len(items), "items": items}
+
+
+@router.delete("/analyses/{analysis_id}")
+def delete_resume_analysis(analysis_id: int) -> dict[str, Any]:
+    try:
+        with engine.begin() as connection:
+            result = connection.execute(
+                text("DELETE FROM resume_analysis WHERE analysis_id = :aid"),
+                {"aid": analysis_id},
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to delete analysis", "error": str(e)},
+        )
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    return {"success": True, "deleted_id": analysis_id}
 
 
 @router.get("/analyses/{analysis_id}")

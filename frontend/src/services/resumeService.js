@@ -25,12 +25,12 @@ import apiClient from "./apiClient";
  */
 export const uploadResume = async (file) => {
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("resume", file);
 
-  const response = await apiClient.post("/resumes/upload", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+  // Do NOT set Content-Type manually — axios must set it automatically
+  // so it includes the correct multipart boundary string.
+  const response = await apiClient.post("/resume/analyze", formData, {
+    timeout: 90000, // 90 seconds — Gemini AI analysis can take time
   });
   return response.data;
 };
@@ -43,7 +43,7 @@ export const uploadResume = async (file) => {
  * Expected response: [{ id, filename, uploaded_at, status }, ...]
  */
 export const getUserResumes = async () => {
-  const response = await apiClient.get("/resumes");
+  const response = await apiClient.get("/resume/analyses");
   return response.data;
 };
 
@@ -55,7 +55,7 @@ export const getUserResumes = async () => {
  * TODO (Backend): DELETE /resumes/:resumeId
  */
 export const deleteResume = async (resumeId) => {
-  const response = await apiClient.delete(`/resumes/${resumeId}`);
+  const response = await apiClient.delete(`/resume/analyses/${resumeId}`);
   return response.data;
 };
 
@@ -68,6 +68,6 @@ export const deleteResume = async (resumeId) => {
  * Expected response: { skills: [...], experience: [...], education: [...], ... }
  */
 export const getParsedResume = async (resumeId) => {
-  const response = await apiClient.get(`/resumes/${resumeId}/parse`);
+  const response = await apiClient.get(`/resume/analyses/${resumeId}`);
   return response.data;
 };

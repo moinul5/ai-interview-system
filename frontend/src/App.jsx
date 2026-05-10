@@ -41,10 +41,9 @@ function App() {
 
           {/* ── Public Routes (with Navbar + Footer) ─────────────────────── */}
           <Route element={<PublicLayout />}>
-            <Route path="/" element={<Home />} />
-
             {/* Guest-only routes: redirect to /dashboard if already logged in */}
             <Route element={<GuestRoute />}>
+              <Route path="/"       element={<Home />} />
               <Route path="/login"  element={<Login />} />
               <Route path="/signup" element={<Signup />} />
             </Route>

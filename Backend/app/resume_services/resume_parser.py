@@ -1,6 +1,7 @@
 import os
 import tempfile
 
+# pyrefly: ignore [missing-import]
 import fitz
 from docx import Document
 

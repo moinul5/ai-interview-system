@@ -15,22 +15,31 @@ import axios from "axios";
 
 const apiClient = axios.create({
   // TODO (Backend): Replace with your actual backend base URL via .env
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000, // 10 seconds
+  timeout: 60000, // 60 seconds — Gemini AI calls can be slow
 });
 
 // ─── Request Interceptor ──────────────────────────────────────────────────────
 // Attaches JWT token from localStorage to every request if present
 apiClient.interceptors.request.use(
   (config) => {
-    // TODO (Backend): Adjust the token key name if your backend uses a different one
+    // Attach JWT token if present
     const token = localStorage.getItem("access_token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // IMPORTANT: When sending FormData (file uploads), let axios set
+    // Content-Type automatically so it includes the multipart boundary.
+    // If we leave the default "application/json" header, FastAPI cannot
+    // parse the file field and returns 422 "Field required".
+    if (config.data instanceof FormData) {
+      delete config.headers["Content-Type"];
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

@@ -5,16 +5,22 @@
  * - Supports drag-and-drop and click-to-upload
  * - Shows upload status and error message
  * - Calls resumeService.uploadResume() on submit
- *
- * Props:
- *   onUploadSuccess {Function} - Called with the API response after successful upload
  */
 
 import { useState, useRef } from "react";
 import { uploadResume } from "../services/resumeService";
 import Loader from "./Loader";
+import {
+  MdCloudUpload,
+  MdInsertDriveFile,
+  MdCheckCircle,
+  MdErrorOutline,
+} from "react-icons/md";
 
-const ACCEPTED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+const ACCEPTED_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 const MAX_SIZE_MB = 5;
 
 const ResumeUpload = ({ onUploadSuccess }) => {
@@ -56,7 +62,7 @@ const ResumeUpload = ({ onUploadSuccess }) => {
     if (dropped) handleFileSelect(dropped);
   };
 
-  const onDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const onDragOver  = (e) => { e.preventDefault(); setDragOver(true); };
   const onDragLeave = ()  => setDragOver(false);
 
   // ─── Upload ─────────────────────────────────────────────────────────────────
@@ -65,14 +71,23 @@ const ResumeUpload = ({ onUploadSuccess }) => {
     setLoading(true);
     setError("");
     try {
-      // TODO (Backend): POST /resumes/upload with multipart/form-data
       const result = await uploadResume(file);
       setSuccess(true);
       setFile(null);
       if (onUploadSuccess) onUploadSuccess(result);
     } catch (err) {
-      // TODO (Backend): Handle specific backend error codes here
-      setError(err.response?.data?.detail || "Upload failed. Please try again.");
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        setError(detail);
+      } else if (detail?.message) {
+        setError(`${detail.message}${detail.extracted_character_count !== undefined ? ` (extracted ${detail.extracted_character_count} chars)` : ""}`);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        setError(`Validation error: ${detail.map(d => d.msg).join(", ")}`);
+      } else if (err.code === "ECONNABORTED") {
+        setError("Request timed out. The AI analysis is taking too long — please try again.");
+      } else {
+        setError(`Upload failed: ${err.response?.status} — ${err.message || "Please try again."}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -99,7 +114,13 @@ const ResumeUpload = ({ onUploadSuccess }) => {
           hidden
           onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
         />
-        <span className="resume-upload__icon">📤</span>
+
+        {file ? (
+          <MdInsertDriveFile size={40} className="resume-upload__icon" />
+        ) : (
+          <MdCloudUpload size={40} className="resume-upload__icon" />
+        )}
+
         <p className="resume-upload__hint">
           {file ? file.name : "Drag & drop your resume here, or click to browse"}
         </p>
@@ -107,20 +128,31 @@ const ResumeUpload = ({ onUploadSuccess }) => {
       </div>
 
       {/* Error Message */}
-      {error && <p className="resume-upload__error" role="alert">{error}</p>}
+      {error && (
+        <p className="resume-upload__error" role="alert">
+          <MdErrorOutline size={16} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+          {error}
+        </p>
+      )}
 
       {/* Success Message */}
-      {success && <p className="resume-upload__success">✅ Resume uploaded successfully!</p>}
+      {success && (
+        <p className="resume-upload__success">
+          <MdCheckCircle size={16} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+          Resume uploaded &amp; analyzed successfully!
+        </p>
+      )}
 
       {/* Upload Button */}
       {file && !loading && (
         <button className="btn btn--primary resume-upload__btn" onClick={handleUpload}>
+          <MdCloudUpload size={16} style={{ verticalAlign: "middle", marginRight: "6px" }} />
           Upload Resume
         </button>
       )}
 
       {/* Loading State */}
-      {loading && <Loader message="Uploading your resume..." />}
+      {loading && <Loader message="Uploading & running AI analysis... (may take 15–30 seconds)" />}
     </div>
   );
 };

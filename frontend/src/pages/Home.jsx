@@ -7,6 +7,17 @@
 
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { MdSmartToy, MdSpeed, MdFactCheck } from "react-icons/md";
+import {
+  FaGoogle,
+  FaMicrosoft,
+  FaAmazon,
+  FaApple,
+  FaMeta,
+
+  FaStripe,
+  FaSlack
+} from "react-icons/fa6";
 
 const Home = () => {
   const { isAuthenticated } = useAuth();
@@ -36,14 +47,35 @@ const Home = () => {
         </div>
       </section>
 
+      {/* Trusted By Section (Logo Marquee) */}
+      <section className="trusted-by">
+        <p className="trusted-by__text">Trusted by candidates who landed offers at</p>
+        <div className="marquee-container">
+          <div className="marquee">
+            {/* Render 6 copies to guarantee it covers any ultra-wide screen seamlessly */}
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="marquee__content" aria-hidden={i > 0}>
+                <FaGoogle className="marquee__logo" />
+                <FaMicrosoft className="marquee__logo" />
+                <FaAmazon className="marquee__logo" />
+                <FaApple className="marquee__logo" />
+                <FaMeta className="marquee__logo" />
+                <FaStripe className="marquee__logo" />
+                <FaSlack className="marquee__logo" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section className="features">
         <h2 className="features__title">Why InterviewAI?</h2>
         <div className="features__grid">
           {[
-            { icon: "🤖", title: "AI-Powered Questions",  desc: "Questions tailored to your resume and target role." },
-            { icon: "📊", title: "Instant Feedback",      desc: "Get real-time scores and improvement tips after each answer." },
-            { icon: "📄", title: "Resume Analysis",       desc: "Upload your resume; our AI extracts skills and suggests questions." },
+            { icon: <MdSmartToy />, title: "AI-Powered Questions",  desc: "Questions tailored to your resume and target role." },
+            { icon: <MdSpeed />, title: "Instant Feedback",      desc: "Get real-time scores and improvement tips after each answer." },
+            { icon: <MdFactCheck />, title: "Resume Analysis",       desc: "Upload your resume; our AI extracts skills and suggests questions." },
           ].map(({ icon, title, desc }) => (
             <div key={title} className="feature-card">
               <span className="feature-card__icon">{icon}</span>

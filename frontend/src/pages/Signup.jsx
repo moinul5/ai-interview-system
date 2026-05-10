@@ -1,15 +1,3 @@
-/**
- * Signup.jsx
- * ----------
- * Registration form page.
- * - Calls authService.registerUser() on submit
- * - Redirects to /login on success
- *
- * BACKEND INTEGRATION:
- *   Submits { full_name, email, password } to POST /auth/register
- *   Adjust field names to match your backend's registration schema.
- */
-
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { registerUser } from "../services/authService";
