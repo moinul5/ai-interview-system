@@ -23,6 +23,17 @@ const MODES = [
     bg: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)",
   },
   {
+    id: "ai",
+    icon: "🤖",
+    label: "AI Interview",
+    desc: "Get a personalized interview based on your role and skills. AI generates questions, evaluates your written answers, and recommends courses.",
+    badge: "AI Powered",
+    badgeClass: "iv-badge--purple",
+    route: "/interview/ai",
+    accent: "#7c3aed",
+    bg: "linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%)",
+  },
+  {
     id: "voice",
     icon: "🎙️",
     label: "Voice-Based Interview",
@@ -42,7 +53,7 @@ const MODES = [
     badgeClass: "iv-badge--gray",
     route: null,
     accent: "#8b5cf6",
-    bg: "linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%)",
+    bg: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
   },
 ];
 

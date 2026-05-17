@@ -236,33 +236,62 @@ Then open your browser at: **http://localhost:5173**
 
 ---
 
-## 📡 API Endpoints
+## 📡 API Endpoints — Complete Reference
+
+> ✅ Every endpoint below is called by the frontend. The backend must implement **all of them** exactly as documented for zero frontend changes.
 
 ### Auth
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/auth/register` | Create a new account | No |
-| POST | `/auth/login` | Login with email & password | No |
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| POST | `/auth/register` | `{ name, email, password }` | `{ user_id, name, email, role }` |
+| POST | `/auth/login` | `{ email, password }` | `{ user_id, name, email, role }` |
 
-### Resume
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/resume/analyze` | Upload PDF/DOCX for AI analysis | No |
-| GET | `/resume/history` | Get past analysis results | No |
-| POST | `/resume/build` | Save a resume built via the Resume Builder form | No |
-| GET | `/resume/build/{resume_id}` | Fetch a previously built resume by ID | No |
+### Resume Analysis
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| POST | `/resume/analyze` | `FormData { resume: File }` | `{ analysis_id, file_name, ai_analysis: {...} }` |
+| GET | `/resume/analyses` | — | `[{ analysis_id, file_name, created_at, ai_analysis }]` |
+| GET | `/resume/analyses/{id}` | — | `{ analysis_id, file_name, extracted_text, ai_analysis }` |
+| DELETE | `/resume/analyses/{id}` | — | `{ message: "Deleted" }` |
 
-### Quiz
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/quiz/questions` | Get quiz questions | No |
-| POST | `/quiz/submit` | Submit quiz answers | No |
+### Resume Builder
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| POST | `/resume/build` | JSON resume payload (see contract section below) | `{ resume_id, message, download_url? }` |
+| GET | `/resume/build/{resume_id}` | — | Full resume JSON |
+
+### User / Profile
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| GET | `/users/me` | — | `{ user_id, name, email, role, created_at }` |
+| PUT | `/users/me` | `{ name?, email? }` | Updated user object |
+| POST | `/users/me/change-password` | `{ current_password, new_password }` | `{ message: "Password updated" }` |
+
+### Interview — Text MCQ
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| GET | `/interview/questions/mcq` | `?category=&difficulty=&limit=10` | `{ questions: [{quiz_question_id, question_text, option_a/b/c/d, marks, category, difficulty}] }` |
+| POST | `/interview/submit/mcq` | `{ answers_json: { "1": "A", "2": "C" } }` | `{ submission_id, score_obtained, max_score, results: [{quiz_question_id, question_text, correct_option, selected, is_correct, option_a/b/c/d}] }` |
+
+### Interview — Voice
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| GET | `/interview/questions/voice` | `?category=&difficulty=&limit=5` | `{ questions: [{question_id, question_text, category, difficulty}] }` |
+| POST | `/interview/submit/voice` | `FormData { question_id, answer_text?, audio_file? }` | `{ answer_id, score, feedback_text, confidence_level }` |
+
+### Interview — AI (ignore-random-master backend, port 8000)
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| POST | `/api/interviews` | `{ candidate_profile, question_count }` | `{ session_id, questions: [{id, question, competency, ideal_answer_signals}], source }` |
+| POST | `/api/interviews/{session_id}/submit` | `{ answers: [{question_id, answer}] }` | `{ session_id, evaluation: {...}, recommended_courses: [...] }` |
 
 ### Health Check
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/` | Check if backend is running |
 | GET | `/health` | Check DB connection status |
+
+
 
 ---
 
@@ -373,13 +402,163 @@ CREATE TABLE built_resumes (
 | `/interview` | Interview Hub | 🔒 Must be logged in |
 | `/interview/text` | Text MCQ Interview | 🔒 Must be logged in |
 | `/interview/voice` | Voice Interview | 🔒 Must be logged in |
+| `/interview/ai` | AI Interview (Personalized) | 🔒 Must be logged in |
 | `/profile` | Profile | 🔒 Must be logged in |
 
 ---
 
 ## 🎯 Interview — Backend Contract
 
-> **For the backend team:** Both interview pages (Text MCQ + Voice) are fully built on the frontend.
+> **For the backend team:** All interview pages are fully built on the frontend.
+> They gracefully fall back to mock data if the backend is not ready.
+
+---
+
+## 🤖 AI Interview — Backend Contract (ignore-random-master)
+
+> This uses a **separate FastAPI server** from the `ignore-random-master` folder.
+> Run it on port 8000 separately. Frontend calls it directly via `http://127.0.0.1:8000`.
+
+### How to run the AI backend
+```powershell
+cd "d:\SE project(Team)\ignore-random-master\backend"
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+### 0️⃣ Set OpenAI key (optional but recommended)
+```env
+# ignore-random-master/backend/.env
+OPENAI_API_KEY=your_openai_key_here
+```
+> Without OpenAI key, the backend uses built-in fallback question templates. Still works!
+
+### 1️⃣ Create AI Interview Session
+```
+POST /api/interviews
+Content-Type: application/json
+```
+Request:
+```json
+{
+  "candidate_profile": {
+    "desired_role": "Backend Engineer",
+    "experience_level": "mid",
+    "current_skills": ["Python", "SQL"],
+    "target_skills": ["FastAPI", "System Design"],
+    "industry": "SaaS",
+    "interview_focus": "backend"
+  },
+  "question_count": 5
+}
+```
+Response:
+```json
+{
+  "session_id": "uuid-here",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "How do you approach designing scalable REST APIs?",
+      "competency": "System Design",
+      "ideal_answer_signals": ["Mentions versioning", "Talks about rate limiting", "Discusses caching"]
+    }
+  ],
+  "source": "openai"
+}
+```
+
+### 2️⃣ Submit Answers & Get Evaluation
+```
+POST /api/interviews/{session_id}/submit
+Content-Type: application/json
+```
+Request:
+```json
+{
+  "answers": [
+    { "question_id": "q1", "answer": "I use RESTful conventions with versioning..." }
+  ]
+}
+```
+Response:
+```json
+{
+  "session_id": "uuid-here",
+  "evaluation": {
+    "score": 78,
+    "summary": "Strong fundamentals with room to improve on system design depth.",
+    "strengths": ["Clear communication", "Good knowledge of REST"],
+    "gaps": ["System Design", "Scalability concepts"],
+    "skill_gaps": [
+      { "skill": "System Design", "reason": "Lacked depth on distributed systems", "priority": 5 }
+    ],
+    "next_steps": ["Study CAP theorem", "Practice system design on Excalidraw"]
+  },
+  "recommended_courses": [
+    {
+      "title": "System Design Interview Fundamentals",
+      "provider": "Educative",
+      "url": "https://...",
+      "description": "...",
+      "relevance": "Directly addresses your system design gap",
+      "difficulty": "intermediate",
+      "estimated_duration_hours": 25
+    }
+  ]
+}
+```
+
+### Notes for AI backend team
+- Frontend file: `frontend/src/pages/InterviewAI.jsx`
+- The frontend calls `http://127.0.0.1:8000` directly (not through the main FastAPI server)
+- `candidate_profile.experience_level` must be `junior`, `mid`, or `senior`
+- `question_count` is between 3 and 10
+- The `session_id` from step 1 is stored in React state and used for step 2
+- Frontend will open course URLs in a new tab if `url` is provided in `recommended_courses`
+
+### ⚠️ DB Persistence — Action Required
+
+The `ignore-random-master` backend stores sessions **in-memory only** (Python dict). If the server restarts, all sessions are lost.
+
+**Two new tables have been added to `ai_interview_system.sql`** to persist AI interview data:
+
+#### `ai_interview_sessions`
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | VARCHAR(36) PK | UUID from AI backend |
+| `user_id` | INT (FK → users) | Optional — NULL for guest |
+| `desired_role` | VARCHAR(150) | e.g. "Backend Engineer" |
+| `experience_level` | ENUM junior/mid/senior | |
+| `current_skills` | TEXT | JSON array |
+| `target_skills` | TEXT | JSON array |
+| `industry` | VARCHAR(100) | Optional |
+| `interview_focus` | VARCHAR(100) | Optional |
+| `question_count` | INT | 3–10 |
+| `questions_json` | LONGTEXT | Full questions array as JSON |
+| `source` | VARCHAR(20) | `openai` or `fallback` |
+
+#### `ai_interview_evaluations`
+| Column | Type | Description |
+|--------|------|-------------|
+| `eval_id` | INT PK AUTO_INCREMENT | |
+| `session_id` | VARCHAR(36) FK | Links to ai_interview_sessions |
+| `score` | INT | 0–100 |
+| `summary` | TEXT | AI summary paragraph |
+| `strengths_json` | TEXT | JSON array of strings |
+| `gaps_json` | TEXT | JSON array of strings |
+| `skill_gaps_json` | LONGTEXT | JSON array of {skill, reason, priority} |
+| `next_steps_json` | TEXT | JSON array of strings |
+| `courses_json` | LONGTEXT | JSON array of course objects |
+| `source` | VARCHAR(20) | `openai` or `fallback` |
+
+**What the backend team needs to do:**
+1. After `POST /api/interviews` → save to `ai_interview_sessions`
+2. After `POST /api/interviews/{session_id}/submit` → save to `ai_interview_evaluations`
+3. Both tables are already in `ai_interview_system.sql` — just re-import in phpMyAdmin
+
+---
+
 > They gracefully fall back to mock data if the backend is not ready.
 
 ---

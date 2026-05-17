@@ -30,6 +30,7 @@ import ResumeBuilder  from "./pages/ResumeBuilder";
 import Interview      from "./pages/Interview";
 import InterviewText  from "./pages/InterviewText";
 import InterviewVoice from "./pages/InterviewVoice";
+import InterviewAI    from "./pages/InterviewAI";
 import Profile        from "./pages/Profile";
 import NotFound  from "./pages/NotFound";
 
@@ -61,6 +62,7 @@ function App() {
               <Route path="/interview"       element={<Interview />} />
               <Route path="/interview/text"  element={<InterviewText />} />
               <Route path="/interview/voice" element={<InterviewVoice />} />
+              <Route path="/interview/ai"    element={<InterviewAI />} />
               <Route path="/profile"         element={<Profile />} />
             </Route>
           </Route>

@@ -24,6 +24,51 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `ai_interview_sessions`
+-- Used by: AI Interview page (/interview/ai)
+-- Source backend: ignore-random-master
+--
+
+CREATE TABLE `ai_interview_sessions` (
+  `session_id`        VARCHAR(36) NOT NULL COMMENT 'UUID from ignore-random-master backend',
+  `user_id`           INT(11) DEFAULT NULL COMMENT 'FK to users.user_id (optional, guest sessions allowed)',
+  `desired_role`      VARCHAR(150) NOT NULL,
+  `experience_level`  ENUM('junior','mid','senior') NOT NULL DEFAULT 'mid',
+  `current_skills`    TEXT DEFAULT NULL COMMENT 'JSON array of current skill strings',
+  `target_skills`     TEXT DEFAULT NULL COMMENT 'JSON array of target skill strings',
+  `industry`          VARCHAR(100) DEFAULT NULL,
+  `interview_focus`   VARCHAR(100) DEFAULT NULL,
+  `question_count`    INT(11) NOT NULL DEFAULT 5,
+  `questions_json`    LONGTEXT NOT NULL COMMENT 'Full questions array JSON from AI backend',
+  `source`            VARCHAR(20) NOT NULL DEFAULT 'fallback' COMMENT 'openai or fallback',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `ai_interview_evaluations`
+-- Stores the AI evaluation result after answers are submitted
+-- Used by: AI Interview page (/interview/ai) — result phase
+--
+
+CREATE TABLE `ai_interview_evaluations` (
+  `eval_id`           INT(11) NOT NULL,
+  `session_id`        VARCHAR(36) NOT NULL COMMENT 'FK to ai_interview_sessions.session_id',
+  `score`             INT(11) NOT NULL DEFAULT 0 COMMENT '0-100 score from AI',
+  `summary`           TEXT DEFAULT NULL,
+  `strengths_json`    TEXT DEFAULT NULL COMMENT 'JSON array of strength strings',
+  `gaps_json`         TEXT DEFAULT NULL COMMENT 'JSON array of gap strings',
+  `skill_gaps_json`   LONGTEXT DEFAULT NULL COMMENT 'JSON array of {skill, reason, priority}',
+  `next_steps_json`   TEXT DEFAULT NULL COMMENT 'JSON array of next step strings',
+  `courses_json`      LONGTEXT DEFAULT NULL COMMENT 'JSON array of recommended course objects',
+  `source`            VARCHAR(20) NOT NULL DEFAULT 'fallback',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `ai_feedback`
 --
 
@@ -543,6 +588,39 @@ ALTER TABLE `interviews`
 ALTER TABLE `interview_questions`
   ADD CONSTRAINT `fk_iq_interview` FOREIGN KEY (`interview_id`) REFERENCES `interviews` (`interview_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_iq_question` FOREIGN KEY (`question_id`) REFERENCES `questions` (`question_id`) ON DELETE CASCADE;
+
+--
+-- Indexes for table `ai_interview_sessions`
+--
+ALTER TABLE `ai_interview_sessions`
+  ADD PRIMARY KEY (`session_id`),
+  ADD KEY `fk_ai_session_user` (`user_id`);
+
+--
+-- Indexes for table `ai_interview_evaluations`
+--
+ALTER TABLE `ai_interview_evaluations`
+  ADD PRIMARY KEY (`eval_id`),
+  ADD KEY `fk_eval_session` (`session_id`);
+
+--
+-- AUTO_INCREMENT for table `ai_interview_evaluations`
+--
+ALTER TABLE `ai_interview_evaluations`
+  MODIFY `eval_id` INT(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- Constraints for table `ai_interview_sessions`
+--
+ALTER TABLE `ai_interview_sessions`
+  ADD CONSTRAINT `fk_ai_session_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `ai_interview_evaluations`
+--
+ALTER TABLE `ai_interview_evaluations`
+  ADD CONSTRAINT `fk_eval_session` FOREIGN KEY (`session_id`) REFERENCES `ai_interview_sessions` (`session_id`) ON DELETE CASCADE;
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
