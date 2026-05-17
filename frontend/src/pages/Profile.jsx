@@ -152,9 +152,9 @@ const Profile = () => {
             {/* Avatar / Identity */}
             <div className="profile-identity">
               <div className="profile-avatar">
-                <span>{(user?.full_name || "U").charAt(0).toUpperCase()}</span>
+                <span>{(user?.name || "U").charAt(0).toUpperCase()}</span>
               </div>
-              <h3 className="profile-identity__name">{user?.full_name || "Candidate"}</h3>
+              <h3 className="profile-identity__name">{user?.name || "Candidate"}</h3>
               <p className="profile-identity__email">{user?.email || ""}</p>
             </div>
 

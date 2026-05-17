@@ -44,7 +44,7 @@ const Dashboard = () => {
       {/* Welcome Header */}
       <div className="page-header">
         <h1 className="page-header__title">
-          Welcome back, {user?.full_name?.split(" ")[0] || "there"}
+          Welcome back, {user?.name?.split(" ")[0] || "there"}
         </h1>
         <p className="page-header__subtitle">
           Ready for your next interview practice session?

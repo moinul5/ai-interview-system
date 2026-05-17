@@ -77,7 +77,7 @@ const Navbar = () => {
                 }
               >
                 <MdPerson size={16} />
-                {user?.full_name || "Profile"}
+                {user?.name || "Profile"}
               </NavLink>
             </li>
             <li>

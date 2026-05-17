@@ -16,11 +16,11 @@ import json
 import os
 import re
 
+from pathlib import Path
+
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 
-load_dotenv()
-
-_API_KEY    = os.getenv("GROQ_API_KEY", "").strip()
 _MODEL_NAME = "llama-3.1-8b-instant"
 
 # ── Prompt template ──────────────────────────────────────────────────────────
@@ -58,23 +58,29 @@ async def analyze_resume_with_ai(resume_text: str) -> dict:
     Gracefully falls back if the package is missing or the API call fails.
     """
 
-    # ── 1. Check API key ──────────────────────────────────────────────────────
-    if not _API_KEY:
+    # ── 1. Load .env and read API key fresh on every call ────────────────────
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    load_dotenv(dotenv_path=_env_path, override=True)
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+
+
+    # ── 2. Check API key ──────────────────────────────────────────────────────
+    if not api_key:
         return _fallback("GROQ_API_KEY is not set in Backend/.env")
 
-    # ── 2. Lazy import — won't crash if groq is not installed ─────────────────
+    # ── 3. Lazy import — expose the real error ────────────────────────────────
     try:
-        # pyrefly: ignore [missing-import]
         from groq import Groq  # noqa: PLC0415
-    except ImportError:
+        print(f"[DEBUG] groq import: SUCCESS")
+    except Exception as import_err:
+        print(f"[DEBUG] groq import FAILED: {type(import_err).__name__}: {import_err}")
         return _fallback(
-            "groq package is not installed. "
-            "Run: .\\venv\\Scripts\\python.exe -m pip install groq"
+            f"groq import error ({type(import_err).__name__}): {import_err}"
         )
 
     # ── 3. Call Groq ──────────────────────────────────────────────────────────
     try:
-        client = Groq(api_key=_API_KEY)
+        client = Groq(api_key=api_key)
         prompt = _PROMPT_TEMPLATE.format(resume_text=resume_text[:12000])
 
         chat_completion = client.chat.completions.create(

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.database import engine
+from app.auth.router import router as auth_router
 from app.quiz_routes.quiz import router as quiz_router
 from app.resume_routes.resume import router as resume_router
 
@@ -28,6 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(quiz_router)
 

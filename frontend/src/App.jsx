@@ -2,14 +2,11 @@
  * App.jsx
  * -------
  * Root application component.
- * Sets up React Router with:
- *   - Public routes (Home, Login, Signup) wrapped in PublicLayout
- *   - GuestRoute: redirects logged-in users away from auth pages
- *   - ProtectedRoute: guards Dashboard, Resume, Profile behind authentication
- *   - DashboardLayout: sidebar layout for authenticated pages
- *   - 404 catch-all route
- *
- * All routes are defined here. Add new routes in this file.
+ * Route structure:
+ *   - / (Home)            → PublicLayout (Navbar + Footer), GuestRoute
+ *   - /login, /signup     → Standalone (no Navbar), GuestRoute
+ *   - /dashboard, etc.    → ProtectedRoute → DashboardLayout
+ *   - * 404               → NotFound
  */
 
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -27,39 +24,48 @@ import GuestRoute     from "./routes/GuestRoute";
 import Home      from "./pages/Home";
 import Login     from "./pages/Login";
 import Signup    from "./pages/Signup";
-import Dashboard from "./pages/Dashboard";
-import Resume    from "./pages/Resume";
-import Profile   from "./pages/Profile";
+import Dashboard      from "./pages/Dashboard";
+import Resume         from "./pages/Resume";
+import ResumeBuilder  from "./pages/ResumeBuilder";
+import Interview      from "./pages/Interview";
+import InterviewText  from "./pages/InterviewText";
+import InterviewVoice from "./pages/InterviewVoice";
+import Profile        from "./pages/Profile";
 import NotFound  from "./pages/NotFound";
 
 function App() {
   return (
     <BrowserRouter>
-      {/* AuthProvider wraps the entire app so all routes can access auth state */}
       <AuthProvider>
         <Routes>
 
-          {/* ── Public Routes (with Navbar + Footer) ─────────────────────── */}
+          {/* ── Home (public, with Navbar + Footer) ──────────────────────── */}
           <Route element={<PublicLayout />}>
-            {/* Guest-only routes: redirect to /dashboard if already logged in */}
             <Route element={<GuestRoute />}>
-              <Route path="/"       element={<Home />} />
-              <Route path="/login"  element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
+              <Route path="/" element={<Home />} />
             </Route>
           </Route>
 
-          {/* ── Protected Routes (Dashboard Layout: Navbar + Sidebar) ────── */}
+          {/* ── Auth pages (standalone — full-page split layout, no Navbar) ─ */}
+          <Route element={<GuestRoute />}>
+            <Route path="/login"  element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+          </Route>
+
+          {/* ── Protected Routes (Dashboard Layout: Navbar + Sidebar) ─────── */}
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/resume"    element={<Resume />} />
-              <Route path="/profile"   element={<Profile />} />
-              {/* TODO: Add more protected routes here (e.g., /interview, /results) */}
+              <Route path="/dashboard"       element={<Dashboard />} />
+              <Route path="/resume"          element={<Resume />} />
+              <Route path="/resume-builder"  element={<ResumeBuilder />} />
+              <Route path="/interview"       element={<Interview />} />
+              <Route path="/interview/text"  element={<InterviewText />} />
+              <Route path="/interview/voice" element={<InterviewVoice />} />
+              <Route path="/profile"         element={<Profile />} />
             </Route>
           </Route>
 
-          {/* ── 404 Fallback ─────────────────────────────────────────────── */}
+          {/* ── 404 Fallback ──────────────────────────────────────────────── */}
           <Route path="*" element={<NotFound />} />
 
         </Routes>
