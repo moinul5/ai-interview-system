@@ -2,7 +2,7 @@
  * Interview.jsx
  * -------------
  * Interview Hub — landing page where user picks interview type.
- * Types: Text MCQ, Voice-based, Video (coming soon)
+ * Types: Text MCQ, Voice-based, AI, Robot Video Viva
  *
  * Route: /interview
  */
@@ -47,11 +47,11 @@ const MODES = [
   {
     id: "video",
     icon: "🎥",
-    label: "Video Interview",
-    desc: "Face-to-face AI video interview with real-time facial analysis and posture feedback. Full simulation mode.",
-    badge: "Coming Soon",
-    badgeClass: "iv-badge--gray",
-    route: null,
+    label: "Robot Video Viva",
+    desc: "Robot asks AI questions, you answer on camera with voice, speech becomes transcript, and Groq evaluates your viva response.",
+    badge: "Phase 2 Live",
+    badgeClass: "iv-badge--purple",
+    route: "/interview/video",
     accent: "#8b5cf6",
     bg: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
   },
@@ -101,7 +101,7 @@ const Interview = () => {
         <h2 className="section-title">How It Works</h2>
         <div className="iv-steps-row">
           {[
-            { n: "1", label: "Pick a Mode", desc: "Choose Text MCQ or Voice based on your preference" },
+            { n: "1", label: "Pick a Mode", desc: "Choose Text MCQ, AI, Voice, or Robot Video Viva" },
             { n: "2", label: "Answer Questions", desc: "Questions come from our database, matched to your level" },
             { n: "3", label: "Get AI Feedback", desc: "Your answers are scored and feedback is provided instantly" },
             { n: "4", label: "Track Progress", desc: "View your session history on the Dashboard" },
