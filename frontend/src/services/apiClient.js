@@ -17,10 +17,24 @@ const apiClient = axios.create({
 });
 
 // ─── Request Interceptor ──────────────────────────────────────────────────────
-// When sending FormData (file uploads), let axios set Content-Type automatically
-// so it includes the multipart boundary.
+// 1. Attach X-User-Id header so the backend can identify the logged-in user.
+// 2. When sending FormData (file uploads), let axios set Content-Type automatically
+//    so it includes the multipart boundary.
 apiClient.interceptors.request.use(
   (config) => {
+    // Attach logged-in user's ID from localStorage
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        const user = JSON.parse(stored);
+        if (user?.id) {
+          config.headers["X-User-Id"] = user.id;
+        }
+      }
+    } catch {
+      // localStorage parse failed — skip header
+    }
+
     if (config.data instanceof FormData) {
       delete config.headers["Content-Type"];
     }
