@@ -28,7 +28,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const AI_BASE_URL = "http://127.0.0.1:8000";
+const AI_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const EXPERIENCE_LEVELS = [
   { value: "junior",  label: "Junior (0–2 years)" },
@@ -338,7 +338,7 @@ const InterviewAI = () => {
 
             {source === "fallback" && (
               <div className="ai-fallback-note">
-                ⚠️ Running without OpenAI key — using built-in question templates.
+                ⚠️ Running without Groq key — using built-in question templates.
               </div>
             )}
           </div>
@@ -375,7 +375,7 @@ const InterviewAI = () => {
         </div>
 
         {source === "fallback" && (
-          <div className="iv-mock-banner">⚠ Using built-in question templates (no OpenAI key set)</div>
+          <div className="iv-mock-banner">⚠ Using built-in question templates (no Groq key set)</div>
         )}
 
         {/* Header */}
@@ -488,7 +488,7 @@ const InterviewAI = () => {
           <div>
             <h1 className="iv-result-grade" style={{ color: grade.color }}>{grade.label}</h1>
             <p className="iv-result-sub">{profile.desired_role} · {profile.experience_level}</p>
-            {result.source === "fallback" && <p className="iv-mock-note">⚠ Evaluated with built-in logic (no OpenAI key)</p>}
+            {result.source === "fallback" && <p className="iv-mock-note">⚠ Evaluated with built-in logic (no Groq key)</p>}
           </div>
         </div>
 

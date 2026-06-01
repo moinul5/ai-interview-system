@@ -36,3 +36,41 @@ CREATE TABLE IF NOT EXISTS `aptitude_quiz_submissions` (
     FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+
+-- AI Interview feature tables
+-- Run this if your database was created before the AI Interview feature was added.
+
+CREATE TABLE IF NOT EXISTS `ai_interview_sessions` (
+  `session_id`        VARCHAR(36) NOT NULL,
+  `user_id`           INT(11) DEFAULT NULL,
+  `desired_role`      VARCHAR(150) NOT NULL,
+  `experience_level`  ENUM('junior','mid','senior') NOT NULL DEFAULT 'mid',
+  `current_skills`    TEXT DEFAULT NULL,
+  `target_skills`     TEXT DEFAULT NULL,
+  `industry`          VARCHAR(100) DEFAULT NULL,
+  `interview_focus`   VARCHAR(100) DEFAULT NULL,
+  `question_count`    INT(11) NOT NULL DEFAULT 5,
+  `questions_json`    LONGTEXT NOT NULL,
+  `source`            VARCHAR(20) NOT NULL DEFAULT 'fallback',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`session_id`),
+  KEY `fk_ai_session_user` (`user_id`),
+  CONSTRAINT `fk_ai_session_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_interview_evaluations` (
+  `eval_id`           INT(11) NOT NULL AUTO_INCREMENT,
+  `session_id`        VARCHAR(36) NOT NULL,
+  `score`             INT(11) NOT NULL DEFAULT 0,
+  `summary`           TEXT DEFAULT NULL,
+  `strengths_json`    TEXT DEFAULT NULL,
+  `gaps_json`         TEXT DEFAULT NULL,
+  `skill_gaps_json`   LONGTEXT DEFAULT NULL,
+  `next_steps_json`   TEXT DEFAULT NULL,
+  `courses_json`      LONGTEXT DEFAULT NULL,
+  `source`            VARCHAR(20) NOT NULL DEFAULT 'fallback',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`eval_id`),
+  KEY `fk_eval_session` (`session_id`),
+  CONSTRAINT `fk_eval_session` FOREIGN KEY (`session_id`) REFERENCES `ai_interview_sessions` (`session_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
