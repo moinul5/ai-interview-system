@@ -1,0 +1,6 @@
+@echo off
+echo Installing missing packages...
+.\venv\Scripts\python.exe -m pip install python-dotenv fastapi pymysql python-multipart greenlet==3.1.1 sqlalchemy
+echo.
+echo Starting backend server...
+.\venv\Scripts\python.exe -m uvicorn main:app --reload
