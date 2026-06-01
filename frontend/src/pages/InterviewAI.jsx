@@ -26,9 +26,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-const AI_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+import apiClient from "../services/apiClient";
 
 const EXPERIENCE_LEVELS = [
   { value: "junior",  label: "Junior (0–2 years)" },
@@ -137,21 +135,12 @@ const InterviewAI = () => {
     setLoading(true);
 
     try {
-      const res = await fetch(`${AI_BASE_URL}/api/interviews`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidate_profile: profile,
-          question_count: questionCount,
-        }),
+      const res = await apiClient.post("/api/interviews", {
+        candidate_profile: profile,
+        question_count: questionCount,
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error: ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = res.data;
       setSessionId(data.session_id);
       setQuestions(data.questions);
       setSource(data.source);
@@ -176,18 +165,11 @@ const InterviewAI = () => {
     }));
 
     try {
-      const res = await fetch(`${AI_BASE_URL}/api/interviews/${sessionId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answersPayload }),
+      const res = await apiClient.post(`/api/interviews/${sessionId}/submit`, {
+        answers: answersPayload,
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error: ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = res.data;
       setResult(data);
       setPhase("result");
     } catch (e) {
