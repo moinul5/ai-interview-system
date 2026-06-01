@@ -30,6 +30,7 @@ You are an expert ATS (Applicant Tracking System) resume analyzer and career coa
 Analyze the following resume text and return a JSON object with EXACTLY these keys:
 {{
   "ATS Score": "<number>/100",
+  "Summary": "<short overall summary of the resume>",
   "Strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
   "Weaknesses": ["<weakness 1>", "<weakness 2>"],
   "Missing Skills": ["<skill 1>", "<skill 2>", "<skill 3>"],
@@ -39,6 +40,7 @@ Analyze the following resume text and return a JSON object with EXACTLY these ke
 Rules:
 - ATS Score should reflect how well this resume would pass automated ATS filters (number only, e.g. "78/100").
 - Strengths: list 3-5 concrete positives found in the resume.
+- Summary: write a short 1-2 sentence overview of the candidate profile.
 - Weaknesses: list 2-4 areas that need improvement.
 - Missing Skills: list 3-6 technical or soft skills absent but commonly expected for this type of profile.
 - Suggestions: list 3-5 specific, actionable improvements.
@@ -110,6 +112,7 @@ async def analyze_resume_with_ai(resume_text: str) -> dict:
 
         return {
             "ATS Score":      parsed.get("ATS Score",      "N/A"),
+            "Summary":        str(parsed.get("Summary", "")),
             "Strengths":      _as_list(parsed.get("Strengths",      [])),
             "Weaknesses":     _as_list(parsed.get("Weaknesses",     [])),
             "Missing Skills": _as_list(parsed.get("Missing Skills", [])),
@@ -135,6 +138,7 @@ def _fallback(reason: str) -> dict:
     """Safe placeholder — backend never returns 500 just because AI failed."""
     return {
         "ATS Score":      "N/A",
+        "Summary":        "AI analysis could not be completed.",
         "Strengths":      [f"[AI unavailable] {reason}"],
         "Weaknesses":     ["Could not perform real analysis."],
         "Missing Skills": [],
