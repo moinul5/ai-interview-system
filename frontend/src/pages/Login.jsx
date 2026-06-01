@@ -43,7 +43,17 @@ const Login = () => {
       await login(formData.email, formData.password);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.detail || "Invalid email or password.");
+      // FastAPI returns `detail` as a string for auth errors (401),
+      // but as an array of objects for validation errors (422).
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        setError(detail);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        // Pydantic validation error: [{type, loc, msg, input, ctx}, ...]
+        setError(detail.map((d) => d.msg || JSON.stringify(d)).join(". "));
+      } else {
+        setError("Invalid email or password.");
+      }
     } finally {
       setLoading(false);
     }
