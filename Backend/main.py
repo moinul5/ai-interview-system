@@ -12,6 +12,7 @@ from app.quiz_routes.quiz import router as quiz_router
 from app.resume_routes.resume import router as resume_router
 from app.interview_routes.text_interview import router as text_interview_router
 from app.interview_routes.interview import router as interview_router
+from app.interview_routes.mcq_interview import router as mcq_interview_router
 
 load_dotenv()
 
@@ -36,6 +37,7 @@ app.include_router(resume_router)
 app.include_router(quiz_router)
 app.include_router(text_interview_router)
 app.include_router(interview_router)
+app.include_router(mcq_interview_router)
 
 @app.get("/")
 def home() -> dict[str, str]:
