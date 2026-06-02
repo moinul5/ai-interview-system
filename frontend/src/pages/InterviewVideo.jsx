@@ -16,8 +16,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import apiClient from "../services/apiClient";
 
-const AI_BASE_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const AI_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_AI_API_URL || "http://localhost:8000";
 const RECORD_MAX_SECONDS = 150;
 
 const COMMON_ROLES = [
@@ -232,24 +233,19 @@ const InterviewVideo = () => {
 
     try {
       const skills = profile.current_skills.split(",").map((s) => s.trim()).filter(Boolean);
-      const res = await fetch(`${AI_BASE_URL}/api/interviews`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidate_profile: {
-            desired_role: profile.desired_role,
-            experience_level: profile.experience_level,
-            current_skills: skills,
-            target_skills: [],
-            industry: "",
-            interview_focus: profile.interview_focus || "Video viva interview with communication and technical depth",
-          },
-          question_count: questionCount,
-        }),
+      const res = await apiClient.post("/api/interviews", {
+        candidate_profile: {
+          desired_role: profile.desired_role,
+          experience_level: profile.experience_level,
+          current_skills: skills,
+          target_skills: [],
+          industry: "",
+          interview_focus: profile.interview_focus || "Video viva interview with communication and technical depth",
+        },
+        question_count: questionCount,
       });
 
-      if (!res.ok) throw new Error("AI backend failed");
-      const data = await res.json();
+      const data = res.data;
       setSessionId(data.session_id);
       setQuestions(data.questions || []);
       setSource(data.source || "ai");
@@ -364,13 +360,10 @@ const InterviewVideo = () => {
 
     try {
       if (!sessionId) throw new Error("Fallback session cannot be saved to AI backend");
-      const res = await fetch(`${AI_BASE_URL}/api/interviews/${sessionId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answersPayload }),
+      const res = await apiClient.post(`/api/interviews/${sessionId}/submit`, {
+        answers: answersPayload,
       });
-      if (!res.ok) throw new Error("Evaluation failed");
-      const data = await res.json();
+      const data = res.data;
       setResult(data);
     } catch {
       const answered = answersPayload.filter((item) => item.answer.trim()).length;
@@ -446,7 +439,7 @@ const InterviewVideo = () => {
               <div className="form-group">
                 <label className="form-label">Experience</label>
                 <select className="form-input" value={profile.experience_level} onChange={(e) => updateProfile("experience_level", e.target.value)}>
-                  <option value="entry">Entry</option>
+                  <option value="junior">Junior / Entry</option>
                   <option value="mid">Mid</option>
                   <option value="senior">Senior</option>
                 </select>
@@ -595,44 +588,139 @@ const InterviewVideo = () => {
   }
 
   if (phase === "result") {
-    const score = Math.round(result?.overall_score || result?.score || 0);
+    // Backend returns: { evaluation: { score, summary, strengths, gaps, skill_gaps, next_steps }, recommended_courses, source }
+    // Fallback returns: { overall_score, summary, strengths, weaknesses, recommendations }
+    const evaluation = result?.evaluation || {};
+    const score = Math.round(evaluation?.score || result?.overall_score || 0);
+    const summary = evaluation?.summary || result?.summary || "Your video viva answers were evaluated from the generated transcript.";
+    const strengths = evaluation?.strengths || result?.strengths || [];
+    const gaps = evaluation?.gaps || result?.weaknesses || [];
+    const skillGaps = evaluation?.skill_gaps || [];
+    const nextSteps = evaluation?.next_steps || result?.recommendations || [];
+    const courses = result?.recommended_courses || [];
+    const evalSource = result?.source || "";
+    const grade = score >= 80 ? { label: "Excellent! 🎉", color: "#22c55e" }
+               : score >= 60 ? { label: "Good Job! 👍",  color: "#7c3aed" }
+               : score >= 40 ? { label: "Keep Practicing 📚", color: "#f97316" }
+               :               { label: "Needs Work 💪",  color: "#ef4444" };
+
     return (
       <div className="page video-result-page">
         <div className="iv-result-header">
           <div className="iv-result-score-ring">
             <svg viewBox="0 0 120 120" width="140" height="140">
               <circle cx="60" cy="60" r="52" fill="none" stroke="#e5e7eb" strokeWidth="8" />
-              <circle cx="60" cy="60" r="52" fill="none" stroke="#7c3aed" strokeWidth="8" strokeLinecap="round" strokeDasharray={`${score * 3.27} 327`} transform="rotate(-90 60 60)" />
+              <circle cx="60" cy="60" r="52" fill="none" stroke={grade.color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${score * 3.27} 327`} transform="rotate(-90 60 60)" style={{ transition: "stroke-dasharray 1s ease" }} />
             </svg>
             <div className="iv-result-score-ring__label">
-              <span className="iv-result-score-ring__pct" style={{ color: "#7c3aed" }}>{score}%</span>
-              <span className="iv-result-score-ring__raw">score</span>
+              <span className="iv-result-score-ring__pct" style={{ color: grade.color }}>{score}</span>
+              <span className="iv-result-score-ring__raw">/ 100</span>
             </div>
           </div>
           <div>
-            <h1 className="iv-result-grade" style={{ color: "#7c3aed" }}>Robot Video Viva Complete</h1>
-            <p className="iv-result-sub">{result?.summary || "Your video viva answers were evaluated from the generated transcript."}</p>
+            <h1 className="iv-result-grade" style={{ color: grade.color }}>{grade.label}</h1>
+            <p className="iv-result-sub">{summary}</p>
+            {evalSource === "fallback" && <p className="iv-mock-note">⚠ Evaluated with fallback logic (Groq AI unavailable)</p>}
+            {evalSource === "groq" && <p className="iv-mock-note" style={{ color: "#22c55e" }}>✅ Evaluated by Groq AI</p>}
           </div>
         </div>
 
+        {/* Strengths & Gaps */}
         <div className="ai-result-section">
           <h2 className="section-title">AI Feedback</h2>
           <div className="ai-sg-grid">
-            <div className="ai-sg-card ai-sg-card--strength">
-              <h3>Strengths</h3>
-              <ul>{(result?.strengths || []).map((item, i) => <li key={i}>{item}</li>)}</ul>
-            </div>
-            <div className="ai-sg-card">
-              <h3>Improvements</h3>
-              <ul>{(result?.weaknesses || result?.areas_to_improve || []).map((item, i) => <li key={i}>{item}</li>)}</ul>
-            </div>
-            <div className="ai-sg-card">
-              <h3>Recommendations</h3>
-              <ul>{(result?.recommendations || []).map((item, i) => <li key={i}>{item}</li>)}</ul>
-            </div>
+            {strengths.length > 0 && (
+              <div className="ai-sg-card ai-sg-card--strength">
+                <h3 className="ai-sg-card__title">✅ Strengths</h3>
+                <ul className="ai-sg-list">{strengths.map((item, i) => <li key={i}>{item}</li>)}</ul>
+              </div>
+            )}
+            {gaps.length > 0 && (
+              <div className="ai-sg-card ai-sg-card--gap">
+                <h3 className="ai-sg-card__title">⚠️ Areas to Improve</h3>
+                <ul className="ai-sg-list">{gaps.map((item, i) => <li key={i}>{item}</li>)}</ul>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Skill Gaps */}
+        {skillGaps.length > 0 && (
+          <div className="ai-result-section">
+            <h2 className="section-title">🎯 Skill Gaps</h2>
+            <div className="ai-skill-gaps">
+              {skillGaps.map((sg, i) => (
+                <div key={i} className="ai-skill-gap-card">
+                  <div className="ai-skill-gap-card__header">
+                    <span className="ai-skill-gap-card__name">{sg.skill}</span>
+                    <div className="ai-priority-dots">
+                      {[1,2,3,4,5].map(n => (
+                        <span key={n} className={`ai-priority-dot${n <= sg.priority ? " ai-priority-dot--filled" : ""}`} />
+                      ))}
+                      <span className="ai-priority-label">Priority</span>
+                    </div>
+                  </div>
+                  <p className="ai-skill-gap-card__reason">{sg.reason}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Next Steps */}
+        {nextSteps.length > 0 && (
+          <div className="ai-result-section">
+            <h2 className="section-title">🚀 Next Steps</h2>
+            <ol className="ai-next-steps">
+              {nextSteps.map((step, i) => (
+                <li key={i} className="ai-next-step">
+                  <span className="ai-next-step__num">{i + 1}</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {/* Recommended Courses */}
+        {courses.length > 0 && (
+          <div className="ai-result-section">
+            <h2 className="section-title">📚 Recommended Courses</h2>
+            <div className="ai-courses-grid">
+              {courses.map((course, i) => (
+                <div key={i} className="ai-course-card">
+                  <div className="ai-course-card__header">
+                    <div>
+                      <p className="ai-course-card__title">{course.title}</p>
+                      <p className="ai-course-card__provider">{course.provider}</p>
+                    </div>
+                    {course.difficulty && (
+                      <span className={`iv-tag iv-tag--${course.difficulty === "beginner" ? "easy" : course.difficulty === "intermediate" ? "medium" : "hard"}`}>
+                        {course.difficulty}
+                      </span>
+                    )}
+                  </div>
+                  <p className="ai-course-card__desc">{course.description}</p>
+                  <div className="ai-course-card__footer">
+                    {course.estimated_duration_hours && (
+                      <span className="ai-course-card__duration">⏱ ~{course.estimated_duration_hours}h</span>
+                    )}
+                    {course.relevance && (
+                      <span className="ai-course-card__relevance">🎯 {course.relevance}</span>
+                    )}
+                    {course.url && (
+                      <a href={course.url} target="_blank" rel="noreferrer" className="btn btn--sm btn--outline" style={{ marginLeft: "auto" }}>
+                        View Course →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Transcript & Video Review */}
         <div className="iv-review">
           <h2 className="section-title">Transcript & Video Review</h2>
           <div className="iv-review-list">

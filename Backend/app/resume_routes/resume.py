@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Query, Request, UploadFile
 from sqlalchemy import text
 
 from app.database import engine
@@ -18,13 +18,26 @@ MIN_TEXT_CHARS = (
 )
 
 
+def _get_user_id(x_user_id: str | None) -> int | None:
+    """Parse the X-User-Id header into an int, or return None."""
+    if x_user_id is None:
+        return None
+    try:
+        return int(x_user_id)
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/")
 def test_resume_route() -> dict[str, str]:
     return {"message": "Resume Route Working"}
 
 
 @router.post("/analyze")
-async def analyze_resume(resume: UploadFile = File(...)) -> dict[str, Any]:
+async def analyze_resume(
+    resume: UploadFile = File(...),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     if not resume.filename:
         raise HTTPException(
             status_code=400,
@@ -56,17 +69,20 @@ async def analyze_resume(resume: UploadFile = File(...)) -> dict[str, Any]:
 
     ai_response = await analyze_resume_with_ai(stripped)
 
+    user_id = _get_user_id(x_user_id)
+
     try:
         with engine.begin() as connection:
             connection.execute(
                 text(
                     """
                     INSERT INTO resume_analysis
-                      (file_name, extracted_text, ai_analysis)
-                    VALUES (:file_name, :extracted_text, :ai_analysis)
+                      (user_id, file_name, extracted_text, ai_analysis)
+                    VALUES (:user_id, :file_name, :extracted_text, :ai_analysis)
                     """
                 ),
                 {
+                    "user_id": user_id,
                     "file_name": resume.filename,
                     "extracted_text": stripped,
                     "ai_analysis": json.dumps(ai_response),
@@ -102,24 +118,45 @@ def list_resume_analyses(
         default=True,
         description="If true, parses stored JSON so the UI can render cards without fetching each row.",
     ),
+    x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    user_id = _get_user_id(x_user_id)
+
     try:
         with engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    text(
-                        """
-                        SELECT analysis_id, file_name, created_at, ai_analysis
-                        FROM resume_analysis
-                        ORDER BY analysis_id DESC
-                        LIMIT :limit OFFSET :offset
-                        """
-                    ),
-                    {"limit": limit, "offset": offset},
+            if user_id is not None:
+                rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT analysis_id, file_name, created_at, ai_analysis
+                            FROM resume_analysis
+                            WHERE user_id = :user_id
+                            ORDER BY analysis_id DESC
+                            LIMIT :limit OFFSET :offset
+                            """
+                        ),
+                        {"user_id": user_id, "limit": limit, "offset": offset},
+                    )
+                    .mappings()
+                    .all()
                 )
-                .mappings()
-                .all()
-            )
+            else:
+                rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT analysis_id, file_name, created_at, ai_analysis
+                            FROM resume_analysis
+                            ORDER BY analysis_id DESC
+                            LIMIT :limit OFFSET :offset
+                            """
+                        ),
+                        {"limit": limit, "offset": offset},
+                    )
+                    .mappings()
+                    .all()
+                )
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -145,13 +182,26 @@ def list_resume_analyses(
 
 
 @router.delete("/analyses/{analysis_id}")
-def delete_resume_analysis(analysis_id: int) -> dict[str, Any]:
+def delete_resume_analysis(
+    analysis_id: int,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_id = _get_user_id(x_user_id)
+
     try:
         with engine.begin() as connection:
-            result = connection.execute(
-                text("DELETE FROM resume_analysis WHERE analysis_id = :aid"),
-                {"aid": analysis_id},
-            )
+            if user_id is not None:
+                result = connection.execute(
+                    text(
+                        "DELETE FROM resume_analysis WHERE analysis_id = :aid AND user_id = :user_id"
+                    ),
+                    {"aid": analysis_id, "user_id": user_id},
+                )
+            else:
+                result = connection.execute(
+                    text("DELETE FROM resume_analysis WHERE analysis_id = :aid"),
+                    {"aid": analysis_id},
+                )
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -165,19 +215,36 @@ def delete_resume_analysis(analysis_id: int) -> dict[str, Any]:
 
 
 @router.get("/analyses/{analysis_id}")
-def get_resume_analysis(analysis_id: int) -> dict[str, Any]:
+def get_resume_analysis(
+    analysis_id: int,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_id = _get_user_id(x_user_id)
+
     try:
         with engine.connect() as connection:
-            row = connection.execute(
-                text(
-                    """
-                    SELECT analysis_id, file_name, extracted_text, ai_analysis, created_at
-                    FROM resume_analysis
-                    WHERE analysis_id = :aid
-                    """
-                ),
-                {"aid": analysis_id},
-            ).mappings().first()
+            if user_id is not None:
+                row = connection.execute(
+                    text(
+                        """
+                        SELECT analysis_id, file_name, extracted_text, ai_analysis, created_at
+                        FROM resume_analysis
+                        WHERE analysis_id = :aid AND user_id = :user_id
+                        """
+                    ),
+                    {"aid": analysis_id, "user_id": user_id},
+                ).mappings().first()
+            else:
+                row = connection.execute(
+                    text(
+                        """
+                        SELECT analysis_id, file_name, extracted_text, ai_analysis, created_at
+                        FROM resume_analysis
+                        WHERE analysis_id = :aid
+                        """
+                    ),
+                    {"aid": analysis_id},
+                ).mappings().first()
     except Exception as e:
         raise HTTPException(
             status_code=500,

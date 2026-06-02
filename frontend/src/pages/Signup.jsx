@@ -64,7 +64,14 @@ const Signup = () => {
       });
       navigate("/login", { state: { registered: true } });
     } catch (err) {
-      setError(err.response?.data?.detail || "Registration failed. Please try again.");
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        setError(detail);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        setError(detail.map((d) => d.msg || JSON.stringify(d)).join(". "));
+      } else {
+        setError("Registration failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
