@@ -74,3 +74,31 @@ CREATE TABLE IF NOT EXISTS `ai_interview_evaluations` (
   KEY `fk_eval_session` (`session_id`),
   CONSTRAINT `fk_eval_session` FOREIGN KEY (`session_id`) REFERENCES `ai_interview_sessions` (`session_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
+-- Voice Interview feature tables
+-- Separate from the existing `answers` table which requires FK to `interview_questions`.
+
+CREATE TABLE IF NOT EXISTS `voice_answers` (
+  `va_id`         INT(11) NOT NULL AUTO_INCREMENT,
+  `question_id`   INT(11) NOT NULL COMMENT 'FK to questions.question_id',
+  `answer_text`   TEXT DEFAULT NULL COMMENT 'Transcript of the spoken answer',
+  `audio_path`    VARCHAR(255) DEFAULT NULL COMMENT 'Path to saved audio file',
+  `submitted_at`  TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`va_id`),
+  KEY `fk_va_question` (`question_id`),
+  CONSTRAINT `fk_va_question` FOREIGN KEY (`question_id`) REFERENCES `questions` (`question_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `voice_ai_feedback` (
+  `vf_id`             INT(11) NOT NULL AUTO_INCREMENT,
+  `va_id`             INT(11) NOT NULL COMMENT 'FK to voice_answers.va_id',
+  `score`             DECIMAL(5,2) DEFAULT NULL COMMENT 'Score from 0.00 to 100.00',
+  `feedback_text`     TEXT DEFAULT NULL COMMENT 'AI-generated feedback paragraph',
+  `improvement`       TEXT DEFAULT NULL COMMENT 'Specific improvement suggestions',
+  `confidence_level`  DECIMAL(3,2) DEFAULT NULL COMMENT 'AI confidence 0.00 to 1.00',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`vf_id`),
+  KEY `fk_vf_va` (`va_id`),
+  CONSTRAINT `fk_vf_va` FOREIGN KEY (`va_id`) REFERENCES `voice_answers` (`va_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
