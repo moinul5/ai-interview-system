@@ -55,6 +55,17 @@ const MODES = [
     accent: "#8b5cf6",
     bg: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
   },
+  {
+    id: "history",
+    icon: "📋",
+    label: "Interview History",
+    desc: "View all your past interviews — Voice, AI, and Video. Track your scores, review feedback, and monitor your progress over time.",
+    badge: "New",
+    badgeClass: "iv-badge--blue",
+    route: "/interview/history",
+    accent: "#0891b2",
+    bg: "linear-gradient(135deg, #ecfeff 0%, #cffafe 100%)",
+  },
 ];
 
 const Interview = () => {

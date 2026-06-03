@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -423,7 +423,15 @@ def _db_save_evaluation(
 
 
 @router.post("", response_model=CreateInterviewResponse)
-def create_interview(payload: CreateInterviewRequest) -> CreateInterviewResponse:
+def create_interview(payload: CreateInterviewRequest, request: Request) -> CreateInterviewResponse:
+    # Read user_id from X-User-Id header (sent by frontend apiClient)
+    header_user_id = request.headers.get("X-User-Id")
+    if header_user_id and payload.user_id is None:
+        try:
+            payload.user_id = int(header_user_id)
+        except (ValueError, TypeError):
+            pass
+
     questions = _generate_questions_with_groq(payload.candidate_profile, payload.question_count)
     source = "groq" if questions else "fallback"
     if questions is None:
