@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -501,8 +501,9 @@ async def submit_voice_answer(
                 },
             )
             answer_id = va_id
-    except Exception:
-        # Evaluation still works even if DB save fails
+    except Exception as e:
+        # Log DB save error so it's visible in console
+        print(f"[VOICE SUBMIT] DB save failed: {e}")
         pass
 
     # ── 5. Return response matching frontend expectation ─────────────────────
@@ -513,3 +514,108 @@ async def submit_voice_answer(
         "improvement": evaluation.get("improvement", ""),
         "confidence_level": evaluation["confidence_level"],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6) GET /interview/history   — Fetch all past interview history
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/interview/history")
+def get_interview_history(
+    request: Request,
+    interview_type: str | None = Query(None),
+):
+    """Fetch all past interview history for the logged-in user."""
+    user_id = request.headers.get("X-User-Id")
+
+    history = []
+
+    # ── Voice Interview History ──
+    if not interview_type or interview_type == "voice":
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("""
+                        SELECT va.va_id, va.question_id, va.answer_text, va.audio_path, va.submitted_at,
+                               q.question_text, q.category, q.difficulty,
+                               vf.score, vf.feedback_text, vf.improvement, vf.confidence_level
+                        FROM voice_answers va
+                        JOIN questions q ON va.question_id = q.question_id
+                        LEFT JOIN voice_ai_feedback vf ON va.va_id = vf.va_id
+                        ORDER BY va.submitted_at DESC
+                        LIMIT 100
+                    """),
+                ).mappings().all()
+
+                for row in rows:
+                    history.append({
+                        "type": "voice",
+                        "id": row["va_id"],
+                        "question_text": row["question_text"],
+                        "category": row["category"],
+                        "difficulty": row["difficulty"],
+                        "answer_text": row["answer_text"],
+                        "audio_path": row["audio_path"],
+                        "score": float(row["score"]) if row["score"] is not None else None,
+                        "feedback_text": row["feedback_text"],
+                        "improvement": row["improvement"],
+                        "confidence_level": float(row["confidence_level"]) if row["confidence_level"] is not None else None,
+                        "submitted_at": row["submitted_at"].isoformat() if row["submitted_at"] else None,
+                    })
+        except Exception as e:
+            print(f"[VOICE HISTORY] Failed to load voice history: {e}")
+
+    # ── AI Interview History ──
+    if not interview_type or interview_type == "ai":
+        try:
+            with engine.connect() as conn:
+                params = {}
+                user_filter = ""
+                if user_id:
+                    user_filter = "WHERE s.user_id = :user_id OR s.user_id IS NULL"
+                    params["user_id"] = int(user_id)
+
+                rows = conn.execute(
+                    text(f"""
+                        SELECT s.session_id, s.desired_role, s.experience_level, s.question_count,
+                               s.source AS session_source, s.created_at,
+                               e.score, e.summary, e.strengths_json, e.gaps_json, e.source AS eval_source
+                        FROM ai_interview_sessions s
+                        LEFT JOIN ai_interview_evaluations e ON s.session_id = e.session_id
+                        {user_filter}
+                        ORDER BY s.created_at DESC
+                        LIMIT 50
+                    """),
+                    params,
+                ).mappings().all()
+
+                for row in rows:
+                    strengths = []
+                    gaps = []
+                    try:
+                        import json as _json
+                        strengths = _json.loads(row["strengths_json"] or "[]")
+                        gaps = _json.loads(row["gaps_json"] or "[]")
+                    except Exception:
+                        pass
+
+                    history.append({
+                        "type": "ai",
+                        "id": row["session_id"],
+                        "desired_role": row["desired_role"],
+                        "experience_level": row["experience_level"],
+                        "question_count": row["question_count"],
+                        "score": int(row["score"]) if row["score"] is not None else None,
+                        "summary": row["summary"],
+                        "strengths": strengths,
+                        "gaps": gaps,
+                        "source": row["eval_source"] or row["session_source"],
+                        "submitted_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    })
+        except Exception as e:
+            print(f"[AI HISTORY] Failed to load AI history: {e}")
+
+    # Sort all by date
+    history.sort(key=lambda x: x.get("submitted_at") or "", reverse=True)
+
+    return {"history": history, "total": len(history)}
