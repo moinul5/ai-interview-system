@@ -11,7 +11,7 @@ from app.auth.router import router as auth_router
 from app.quiz_routes.quiz import router as quiz_router
 from app.resume_routes.resume import router as resume_router
 from app.interview_routes.interview import router as interview_router
-from app.interview_routes.voice_interview import router as voice_interview_router, voice_submit_router
+from app.voice_interview_routes.voice_interview import router as voice_interview_router
 
 load_dotenv()
 
@@ -36,7 +36,6 @@ app.include_router(resume_router)
 app.include_router(quiz_router)
 app.include_router(interview_router)
 app.include_router(voice_interview_router)
-app.include_router(voice_submit_router)
 
 
 @app.get("/")

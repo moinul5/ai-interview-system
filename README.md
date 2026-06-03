@@ -403,6 +403,7 @@ CREATE TABLE built_resumes (
 | `/interview/text` | Text MCQ Interview | 🔒 Must be logged in |
 | `/interview/voice` | Voice Interview | 🔒 Must be logged in |
 | `/interview/ai` | AI Interview (Personalized) | 🔒 Must be logged in |
+| `/interview/video` | Robot Video Viva | 🔒 Must be logged in |
 | `/profile` | Profile | 🔒 Must be logged in |
 
 ---

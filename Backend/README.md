@@ -1,413 +1,265 @@
-# Backend — API reference & frontend integration
+# 🚀 AI Interview System — Backend
 
-This document describes how the FastAPI backend is reached from a frontend: base URL, headers, bodies, responses, errors, and examples. It matches the current code in this repository.
+FastAPI backend powering resume analysis, AI-driven mock interviews, aptitude quizzes, and user authentication for the AI Interview System.
 
 ---
 
-## Base URL
+## 📐 Architecture
 
-| Environment | Example base URL |
-|-------------|------------------|
-| Local default (`uvicorn main:app --host 127.0.0.1 --port 8000`) | `http://127.0.0.1:8000` |
-| Same machine, alternate host | `http://localhost:8000` |
+| Component | Technology |
+|-----------|------------|
+| **Framework** | FastAPI (Python) |
+| **Port** | `8000` |
+| **Database** | MySQL via XAMPP (phpMyAdmin) |
+| **ORM** | SQLAlchemy |
+| **AI Engine** | Groq AI — Llama 3.1 (resume analysis & interview evaluation) |
+| **Password Hashing** | bcrypt |
+| **API Docs** | Swagger UI auto-generated at `/docs` |
 
-All paths below are **relative to that origin** (no `/api` prefix unless you add one behind a reverse proxy).
+```
+Frontend (React/Vite)
+    │
+    ▼
+FastAPI :8000  ──►  Groq AI (Llama 3.1)
+    │
+    ▼
+MySQL (XAMPP)
+```
 
-**Frontend env pattern:** define a single variable and join paths, e.g.:
+---
+
+## ⚡ Quick Start
+
+```powershell
+cd Backend
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env   # then edit with your values
+uvicorn main:app --reload
+```
+
+| Resource | URL |
+|----------|-----|
+| 🌐 Server | `http://localhost:8000` |
+| 📖 Swagger Docs | `http://localhost:8000/docs` |
+| 📄 OpenAPI JSON | `http://localhost:8000/openapi.json` |
+
+---
+
+## 🔑 Environment Variables (`.env`)
+
+Copy `.env.example` → `.env` and configure:
 
 ```env
-# Vite
-VITE_API_BASE_URL=http://127.0.0.1:8000
-
-# Create React App
-REACT_APP_API_BASE_URL=http://127.0.0.1:8000
+MYSQL_USER=root
+MYSQL_PASSWORD=
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=ai_interview_system
+GROQ_API_KEY=your_groq_key_here
+JWT_SECRET_KEY=your_secret
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:5174
 ```
-
-```typescript
-const API_BASE = import.meta.env.VITE_API_BASE_URL; // Vite
-// const API_BASE = process.env.REACT_APP_API_BASE_URL; // CRA
-```
-
----
-
-## Required headers
-
-| Endpoint type | Typical headers |
-|---------------|----------------|
-| JSON `GET` / `POST` | `Accept: application/json` (optional; default is JSON) |
-| JSON `POST` | `Content-Type: application/json` |
-| **`POST /resume/analyze`** | **Do not** set `Content-Type` manually — the browser sets `multipart/form-data` with a boundary when using `FormData` |
-
-There is **no** `Authorization` header and **no API key** passed from the client today.
-
----
-
-## Authentication
-
-**None.** All listed endpoints are public. If you add JWT or session cookies later, document token issuance and attach `Authorization: Bearer <token>` (or cookie policy) consistently.
-
-Submitting quiz results optionally sends `user_id` in the JSON body (`POST /quiz/submit`) — that is **not** verified against a login in the current backend; treat it as a future hook for authenticated users only.
-
----
-
-## Response standardization
-
-Responses are **not** fully uniform.
-
-| Pattern | Used by |
-|---------|---------|
-| `{ "success": true, ... }` | `POST /resume/analyze`, `GET /resume/analyses`, `GET /resume/analyses/{id}` |
-| `{ "success": true, ... }` | `POST /quiz/submit` |
-| No `success` / `message` / `data` envelope | `GET /health`, `GET /quiz/questions`, `GET /quiz/submissions/{id}` (Pydantic models define the top-level keys) |
-| `GET /` | `{ "message": "..." }` only |
-
-There is **no** global wrapper like `{ success, message, data }`.
-
----
-
-## Error response format
-
-Two shapes appear, depending on what failed.
-
-### 1. `HTTPException` (most business / handler errors)
-
-FastAPI returns JSON:
-
-```json
-{ "detail": <value> }
-```
-
-`<value>` is either:
-
-- A **string** (e.g. `"Analysis not found"`, `"Submission not found"`), or  
-- An **object** with fields such as `message`, `allowed`, `received`, `error`, `missing_question_ids`, etc.
-
-### 2. Request validation (Pydantic / FastAPI, e.g. invalid JSON body)
-
-Typical **422** shape:
-
-```json
-{
-  "detail": [
-    {
-      "type": "missing",
-      "loc": ["body", "answers"],
-      "msg": "Field required",
-      "input": null
-    }
-  ]
-}
-```
-
-### 3. Missing required file on `POST /resume/analyze`
-
-If the multipart field is absent, FastAPI can respond with **422** and a `detail` array describing the missing `resume` field (same array style as above).
-
----
-
-## File uploads
-
-| Item | Behavior in this project |
-|------|---------------------------|
-| **Supported types** | **PDF** (`.pdf`), **Word** (`.docx`) only |
-| **Multipart field name** | **`resume`** (required) |
-| **Max size** | **Not enforced in application code** — depends on `uvicorn`/Starlette defaults and any reverse proxy (e.g. nginx `client_max_body_size`). Plan for typical resume sizes (e.g. 1–10 MB) unless you add explicit limits. |
-| **Validation** | Extension must be `pdf` or `docx` (case-insensitive); filename must contain a `.` suffix; decoded text length after strip must be **≥ 20** characters. |
-
----
-
-## Pagination
-
-Only **`GET /resume/analyses`** is paginated.
-
-| Query param | Type | Default | Constraints |
-|-------------|------|---------|--------------|
-| `limit` | integer | `20` | `1` … `100` |
-| `offset` | integer | `0` | `≥ 0` |
-
-The response includes **`count`**, meaning **number of rows in this response** (`items.length`). It does **not** include total row count across the database. To infer “there may be more,” request `limit + 1` or add a totals endpoint later.
-
----
-
-## OpenAPI (Swagger)
-
-When the server is running:
-
-**Interactive docs:** [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs)  
-
-**OpenAPI JSON:** [`http://127.0.0.1:8000/openapi.json`](http://127.0.0.1:8000/openapi.json)
-
----
-
-## CORS
-
-Configured in `main.py` via **`CORS_ORIGINS`** (comma-separated). Default includes common dev ports (`3000`, `5173`).
-
-**Requirements for browser frontends:**
-
-1. Your SPA origin must appear exactly (scheme + host + port) in `CORS_ORIGINS` inside **`Backend/.env`** (see `Backend/.env.example`).
-2. Example:
-
-   ```env
-   CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
-   ```
-
-3. With `allow_credentials=True`, avoid `*` origins; list explicit URLs.
-
-After changing `.env`, restart **uvicorn**.
-
----
-
-## Server environment variables (backend)
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | Optional full SQLAlchemy URL; overrides discrete MySQL vars if set |
-| `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE` | MySQL connection when `DATABASE_URL` is unset |
-| `CORS_ORIGINS` | Allowed browser origins (comma-separated) |
-
-Copy `Backend/.env.example` → `Backend/.env` and adjust.
+| `MYSQL_*` | MySQL connection parameters |
+| `GROQ_API_KEY` | API key for Groq AI (Llama 3.1) |
+| `JWT_SECRET_KEY` | Secret used for JWT token signing |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry duration (default: 1440 = 24h) |
+| `CORS_ORIGINS` | Comma-separated list of allowed frontend origins |
 
 ---
 
-## Endpoints
+## 🌐 CORS Configuration
 
-### 1. `GET /health`
+Configured in `main.py` via the **`CORS_ORIGINS`** environment variable.
 
-**Purpose:** Liveness and database connectivity check.
+- Origins must match **exactly** (scheme + host + port).
+- `allow_credentials=True` is enabled — avoid using `*`; list explicit URLs.
+- After changing `.env`, **restart uvicorn** for changes to take effect.
 
-**Request body:** none  
+```env
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+```
 
-**Query params:** none  
+---
+
+## 📡 API Endpoints
+
+### 🔐 Auth — `/auth` &nbsp; `app/auth/router.py`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/auth/register` | Register a new user with name, email, password, and role |
+| `POST` | `/auth/login` | Login with email + password; returns user object |
+
+#### `POST /auth/register`
+
+```json
+// Request Body
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "securePass123",
+  "role": "candidate"
+}
+```
+
+#### `POST /auth/login`
+
+```json
+// Request Body
+{
+  "email": "jane@example.com",
+  "password": "securePass123"
+}
+```
+
+---
+
+### 📄 Resume — `/resume` &nbsp; `app/resume_routes/resume.py`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/resume/analyze` | Upload a PDF/DOCX resume for AI analysis |
+| `GET` | `/resume/analyses` | List all analyses for the logged-in user |
+| `GET` | `/resume/analyses/{id}` | Get a specific analysis by ID |
+| `DELETE` | `/resume/analyses/{id}` | Delete a specific analysis by ID |
+
+#### `POST /resume/analyze`
+
+- **Content-Type:** `multipart/form-data`
+- **Form field name:** **`resume`** (required)
+- User is identified via the `X-User-Id` header (injected automatically by the frontend `apiClient.js`)
+
+```bash
+curl -X POST "http://localhost:8000/resume/analyze" \
+  -H "X-User-Id: 5" \
+  -F "resume=@./my_resume.pdf"
+```
 
 **Success — `200`**
 
 ```json
 {
-  "status": "ok",
-  "database": "reachable"
-}
-```
-
-**Failure — `503`** (DB connection or query error)
-
-```json
-{
-  "status": "unhealthy",
-  "database": "unreachable",
-  "detail": "<driver / SQL error message string>"
-}
-```
-
----
-
-### 2. `POST /resume/analyze`
-
-**Content type:** `multipart/form-data`  
-
-**Form field name:** **`resume`** (type: file)
-
-**Example (curl)**
-
-```bash
-curl -X POST "http://127.0.0.1:8000/resume/analyze" \
-  -F "resume=@/path/to/resume.pdf"
-```
-
-**Success — `200`**  
-Body is the same object **after** a successful DB insert (no separate “save” response). The row id is included as `analysis_id`.
-
-```json
-{
   "success": true,
   "analysis_id": 42,
-  "file_name": "resume.pdf",
+  "file_name": "my_resume.pdf",
   "ai_analysis": {
     "ATS Score": "85/100",
-    "Strengths": [
-      "Good project experience",
-      "Strong communication skills",
-      "Clean resume structure"
-    ],
-    "Weaknesses": [
-      "Missing GitHub portfolio",
-      "Need more technical keywords"
-    ],
+    "Strengths": ["Good project experience", "Strong communication skills"],
+    "Weaknesses": ["Missing GitHub portfolio"],
     "Missing Skills": ["Docker", "AWS", "CI/CD"],
-    "Suggestions": [
-      "Add GitHub profile",
-      "Add more measurable achievements",
-      "Improve ATS keywords"
-    ]
+    "Suggestions": ["Add GitHub profile", "Add measurable achievements"]
   }
 }
 ```
 
-**Note:** `ai_analysis` keys and types may change if you replace the stub in `app/resume_services/ai_resume_analyzer.py` with a real model; the DB stores this object as JSON text.
+#### `GET /resume/analyses`
 
-**Validation & error status codes**
+| Query Param | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `limit` | int | `20` | Page size (`1`–`100`) |
+| `offset` | int | `0` | Rows to skip |
+| `include_ai_preview` | bool | `true` | Include parsed `ai_analysis` in each item |
 
-| Code | When | `detail` shape |
-|------|------|----------------|
-| `400` | Upload has no filename | `{ "message": "Missing filename; send a PDF or DOCX resume." }` |
-| `415` | Not `.pdf` / `.docx` | `{ "message": "...", "allowed": ["docx","pdf"], "received": "<ext or unknown>" }` |
-| `422` | Extracted text shorter than 20 characters | `{ "message": "...", "extracted_character_count": <number> }` |
-| `422` | Missing `resume` part (FastAPI) | `detail`: array of validation errors |
-| `500` | DB insert fails | `{ "message": "... confirm table resume_analysis ...", "error": "<string>" }` |
+Results are filtered by the `X-User-Id` header — users only see their own analyses.
+
+#### `GET /resume/analyses/{id}` · `DELETE /resume/analyses/{id}`
+
+Access is restricted to the owning user (verified via `X-User-Id` header).
 
 ---
 
-### 3. `GET /resume/analyses`
+### 🤖 AI Interview — `/api/interviews` &nbsp; `app/interview_routes/interview.py`
 
-**Query params**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/interviews` | Create a new AI interview session |
+| `POST` | `/api/interviews/{session_id}/submit` | Submit answers for AI evaluation |
 
-| Name | Type | Default | Meaning |
-|------|------|---------|---------|
-| `limit` | int | `20` | Page size (`1`–`100`) |
-| `offset` | int | `0` | Rows to skip from newest |
-| `include_ai_preview` | boolean | `true` | Include parsed `ai_analysis` on each item when possible |
+#### `POST /api/interviews`
 
-**`include_ai_preview`**
-
-- `true`: each item may include **`ai_analysis`** — object parsed from DB JSON — good for dashboard cards **without** N detail requests.
-- If the stored JSON is invalid: **`ai_analysis`: `null`** and **`ai_analysis_parse_error`: `true`**.
-- `false`: **`ai_analysis` is omitted** from each item — only **`analysis_id`**, **`file_name`**, **`created_at`** (lighter payloads).
-
-**Success — `200`**
+Creates an interview session with AI-generated (or fallback) questions. Saved to the `ai_interview_sessions` table.
 
 ```json
+// Request Body
 {
-  "success": true,
-  "count": 2,
-  "items": [
-    {
-      "analysis_id": 42,
-      "file_name": "resume.pdf",
-      "created_at": "2026-05-10T12:34:56",
-      "ai_analysis": {
-        "ATS Score": "85/100",
-        "Strengths": [],
-        "Weaknesses": [],
-        "Missing Skills": [],
-        "Suggestions": []
-      }
-    },
-    {
-      "analysis_id": 41,
-      "file_name": "older.docx",
-      "created_at": "2026-05-09T10:00:00",
-      "ai_analysis": null,
-      "ai_analysis_parse_error": true
-    }
+  "candidate_profile": {
+    "name": "Jane Doe",
+    "skills": ["Python", "React", "SQL"],
+    "experience_level": "mid"
+  },
+  "question_count": 5
+}
+```
+
+#### `POST /api/interviews/{session_id}/submit`
+
+Submits candidate answers for Groq AI evaluation. Results are saved to the `ai_interview_evaluations` table.
+
+```json
+// Request Body
+{
+  "answers": [
+    { "question_id": 1, "answer": "My approach would be..." },
+    { "question_id": 2, "answer": "I have experience with..." }
   ]
 }
 ```
 
-**Errors**
+**Response includes:**
 
-| Code | `detail` |
-|------|-----------|
-| `500` | `{ "message": "Failed to list analyses", "error": "<string>" }` |
-
----
-
-### 4. `GET /resume/analyses/{analysis_id}`
-
-**Path param:** `analysis_id` (integer)
-
-**Success — `200`** — fields **always** present on success:
-
-| Field | Type | Notes |
-|-------|------|--------|
-| `success` | boolean | `true` |
-| `analysis_id` | int | Same as path |
-| `file_name` | string | Original upload name |
-| `extracted_text` | string \| null | Full extracted text from file |
-| `ai_analysis` | object \| null | Parsed JSON; `null` if DB value is not valid JSON |
-| `created_at` | string \| null | ISO 8601 from DB timestamp |
-
-**Example**
-
-```json
-{
-  "success": true,
-  "analysis_id": 42,
-  "file_name": "resume.pdf",
-  "extracted_text": "John Doe\nSoftware Engineer\n...",
-  "ai_analysis": {
-    "ATS Score": "85/100",
-    "Strengths": [],
-    "Weaknesses": [],
-    "Missing Skills": [],
-    "Suggestions": []
-  },
-  "created_at": "2026-05-10T12:34:56"
-}
-```
-
-**Errors**
-
-| Code | `detail` |
-|------|-----------|
-| `404` | `"Analysis not found"` (string) |
-| `500` | `{ "message": "Failed to load analysis", "error": "<string>" }` |
+| Field | Description |
+|-------|-------------|
+| `score` | Overall interview score |
+| `strengths` | Candidate's demonstrated strengths |
+| `gaps` | Areas where answers were lacking |
+| `skill_gaps` | Specific skills needing improvement |
+| `next_steps` | Recommended actions for the candidate |
+| `recommended_courses` | Suggested learning resources |
 
 ---
 
-### 5. Quiz APIs
+### 📝 Quiz — `/quiz` &nbsp; `app/quiz_routes/quiz.py`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/quiz/questions` | Fetch quiz questions (correct answers excluded) |
+| `POST` | `/quiz/submit` | Submit answers for auto-grading |
+| `GET` | `/quiz/submissions/{id}` | Retrieve a specific submission result |
 
 #### `GET /quiz/questions`
 
-**Query params**
+| Query Param | Type | Default | Constraints |
+|-------------|------|---------|-------------|
+| `limit` | int | `10` | `1`–`50` |
 
-| Name | Type | Default | Constraints |
-|------|------|---------|-------------|
-| `limit` | int | `10` | Clamped to `1` … `50` server-side |
-
-**Success — `200`**
+> ⚠️ Correct answers are **never** included in the response.
 
 ```json
 {
   "questions": [
     {
       "question_id": 1,
-      "question_text": "What does REST stand for in web APIs?",
-      "options": {
-        "A": "Remote Execution State Transfer",
-        "B": "Representational State Transfer",
-        "C": "Relational Structured Transfer",
-        "D": "Reusable Service Transport"
-      },
+      "question_text": "What does REST stand for?",
+      "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
       "marks": 1
     }
   ]
 }
 ```
 
-Correct answers are **not** returned.
-
----
-
 #### `POST /quiz/submit`
 
-**Content-Type:** `application/json`
-
-**Body schema**
-
-| Field | Type | Required | Notes |
-|-------|------|----------|--------|
-| `answers` | object | yes | Map **question id →** selected option **`"A"`–`"D"`** (case-insensitive). JSON keys are strings, e.g. `"1"`. |
-| `user_id` | integer \| null | no | Optional; must exist in `users.user_id` or insert may fail with **500** (FK). |
-
-**Example**
-
 ```json
+// Request Body
 {
-  "answers": {
-    "1": "B",
-    "2": "C"
-  },
-  "user_id": null
+  "answers": { "1": "B", "2": "C", "3": "A" },
+  "user_id": 5
 }
 ```
 
@@ -423,25 +275,14 @@ Correct answers are **not** returned.
 }
 ```
 
-**Errors**
+Auto-graded and saved to the `aptitude_quiz_submissions` table.
 
-| Code | Typical `detail` |
-|------|------------------|
-| `400` | `{ "message": "'answers' must not be empty" }` |
-| `400` | `{ "message": "Some question IDs are invalid", "missing_question_ids": [7, 8] }` |
-| `422` | Invalid answer key type or option not A–D (`detail` object with `message`, sometimes `received` or `hint`) |
-| `500` | DB / FK (`detail` with `message`, `error`) |
-
----
-
-#### `GET /quiz/submissions/{submission_id}`
-
-**Success — `200`**
+#### `GET /quiz/submissions/{id}`
 
 ```json
 {
   "submission_id": 99,
-  "user_id": null,
+  "user_id": 5,
   "score_obtained": 2,
   "max_score": 3,
   "percentage": 66.67,
@@ -449,82 +290,145 @@ Correct answers are **not** returned.
 }
 ```
 
-**Errors**
+---
 
-| Code | `detail` |
-|------|-----------|
-| `404` | `"Submission not found"` (string) |
+### 💚 Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Basic server status check |
+| `GET` | `/health` | Database connectivity check |
+
+```json
+// GET /health — Success (200)
+{ "status": "ok", "database": "reachable" }
+
+// GET /health — Failure (503)
+{ "status": "unhealthy", "database": "unreachable", "detail": "..." }
+```
 
 ---
 
-## Sample frontend requests
+## 🔒 User Data Isolation
 
-### `fetch` — health
+The frontend's `apiClient.js` automatically injects the **`X-User-Id`** header into every request. The backend uses this header to:
 
-```typescript
-const res = await fetch(`${API_BASE}/health`);
-const data = await res.json();
-if (!res.ok) {
-  console.error(data);
-  throw new Error('Health check failed');
+| Action | Behavior |
+|--------|----------|
+| 📤 Upload resume | Tags the new analysis with the user's ID |
+| 📋 List analyses | Filters results to show only the user's own data |
+| 🔍 View analysis | Returns the record only if owned by the user |
+| 🗑️ Delete analysis | Deletes the record only if owned by the user |
+
+This ensures **complete data isolation** between users — each user can only access their own resume analyses.
+
+---
+
+## 📂 File Upload Rules
+
+| Rule | Detail |
+|------|--------|
+| **Accepted formats** | `.pdf`, `.docx` only |
+| **Form field name** | `resume` (must match exactly) |
+| **Content-Type** | `multipart/form-data` — do **not** set manually; the browser/client sets it with the boundary |
+| **Text validation** | Extracted text must be ≥ 20 characters after stripping whitespace |
+| **Max size** | Not enforced in app code — depends on uvicorn/Starlette defaults and any reverse proxy config |
+
+---
+
+## ❌ Error Response Formats
+
+### Auth Errors — `401`
+
+```json
+{ "detail": "Invalid credentials" }
+```
+
+### Validation Errors — `422`
+
+```json
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body", "answers"],
+      "msg": "Field required",
+      "input": null
+    }
+  ]
 }
 ```
 
-### `fetch` — analyze resume
+### Business / Server Errors — `400` / `404` / `500`
 
-```typescript
-async function analyzeResume(file: File) {
-  const form = new FormData();
-  form.append('resume', file); // exact field name required
-
-  const res = await fetch(`${API_BASE}/resume/analyze`, {
-    method: 'POST',
-    body: form,
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data?.detail ?? res.statusText), { status: res.status, body: data });
-  return data;
+```json
+{
+  "detail": {
+    "message": "Some question IDs are invalid",
+    "missing_question_ids": [7, 8]
+  }
 }
 ```
 
-### `axios` — list analyses with pagination
+---
 
-```typescript
-import axios from 'axios';
+## 🗄️ Database Schema (16 Tables)
 
-const client = axios.create({ baseURL: API_BASE });
-
-const { data } = await client.get('/resume/analyses', {
-  params: { limit: 10, offset: 0, include_ai_preview: true },
-});
-// data.success, data.count, data.items
+```
+┌──────────────────────────┐    ┌──────────────────────────┐
+│  Core                    │    │  AI Features             │
+├──────────────────────────┤    ├──────────────────────────┤
+│  users                   │    │  resume_analysis         │
+│  candidates              │    │  ai_interview_sessions   │
+│  interviewers            │    │  ai_interview_evaluations│
+│  candidate_skills        │    │  ai_feedback             │
+│  skills                  │    │  aptitude_quiz_questions  │
+│  job_positions           │    │  aptitude_quiz_submissions│
+├──────────────────────────┤    └──────────────────────────┘
+│  Interview Flow          │
+├──────────────────────────┤
+│  interviews              │
+│  interview_questions     │
+│  questions               │
+│  answers                 │
+└──────────────────────────┘
 ```
 
-### `axios` — quiz submit
+**Full table list:** `users` · `candidates` · `interviewers` · `candidate_skills` · `skills` · `job_positions` · `interviews` · `interview_questions` · `questions` · `answers` · `ai_feedback` · `resume_analysis` · `aptitude_quiz_questions` · `aptitude_quiz_submissions` · `ai_interview_sessions` · `ai_interview_evaluations`
 
-```typescript
-const { data } = await client.post('/quiz/submit', {
-  answers: { '1': 'B', '2': 'C' },
-  user_id: null,
-});
-// data.success, data.submission_id, data.score_obtained, ...
+---
+
+## 📁 Project Structure
+
+```
+Backend/
+├── main.py                          # FastAPI app entry point, CORS, router registration
+├── requirements.txt                 # Python dependencies
+├── .env.example                     # Environment variable template
+├── app/
+│   ├── auth/
+│   │   └── router.py                # Auth endpoints (register, login)
+│   ├── resume_routes/
+│   │   └── resume.py                # Resume CRUD + AI analysis endpoints
+│   ├── resume_services/
+│   │   └── ai_resume_analyzer.py    # Groq AI integration for resume analysis
+│   ├── interview_routes/
+│   │   └── interview.py             # AI interview session & evaluation endpoints
+│   ├── quiz_routes/
+│   │   └── quiz.py                  # Quiz questions, submission & grading
+│   ├── models/                      # SQLAlchemy ORM models
+│   ├── schemas/                     # Pydantic request/response schemas
+│   └── database.py                  # DB engine & session configuration
 ```
 
 ---
 
-## Related docs
+## 📖 Related Resources
 
-- Module overview (schema, workflow): `../Resume-Analysis-README.md` (repo root)
+- **Frontend README:** `../Frontend/README.md`
+- **Resume Analysis Module:** `../Resume-Analysis-README.md`
+- **Swagger UI (live):** [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## Run the server locally
-
-```powershell
-cd Backend
-.\.venv\Scripts\Activate.ps1
-py -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Then open **Swagger:** `http://127.0.0.1:8000/docs`.
+> Built with ❤️ using FastAPI, Groq AI, and MySQL
