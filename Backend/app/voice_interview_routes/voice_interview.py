@@ -599,6 +599,17 @@ def get_interview_history(
                     except Exception:
                         pass
 
+                    score = int(row["score"]) if row["score"] is not None else 0
+
+                    if score >= 80:
+                        badge = "Expert"
+                    elif score >= 60:
+                        badge = "Intermediate"
+                    elif score >= 40:
+                        badge = "Learner"
+                    else:
+                        badge = "Needs Improvement"
+
                     history.append({
                         "type": "ai",
                         "id": row["session_id"],
@@ -610,6 +621,7 @@ def get_interview_history(
                         "strengths": strengths,
                         "gaps": gaps,
                         "source": row["eval_source"] or row["session_source"],
+                        "badge": badge,
                         "submitted_at": row["created_at"].isoformat() if row["created_at"] else None,
                     })
         except Exception as e:

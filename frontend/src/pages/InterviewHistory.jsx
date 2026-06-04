@@ -230,15 +230,32 @@ const InterviewHistory = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="ih-card__right">
-                    {item.score != null && (
-                      <div className="ih-card__score" style={{ color: scoreColor(item.score) }}>
-                        <span className="ih-card__score-value">{typeof item.score === "number" ? item.score.toFixed(1) : item.score}</span>
-                        <span className="ih-card__score-label">{scoreLabel(item.score)}</span>
-                      </div>
-                    )}
-                    <span className={`ih-card__chevron${isExpanded ? " ih-card__chevron--open" : ""}`}>▾</span>
-                  </div>
+                  <div className="ih-card__score" style={{ color: scoreColor(item.score) }}>
+    <span className="ih-card__score-value">
+        {typeof item.score === "number" ? item.score.toFixed(1) : item.score}
+    </span>
+
+    <span className="ih-card__score-label">
+        {scoreLabel(item.score)}
+    </span>
+
+    {item.badge && (
+  <div
+    style={{
+      background: "#fee2e2",
+      color: "#b91c1c",
+      padding: "4px 8px",
+      borderRadius: "12px",
+      fontSize: "12px",
+      fontWeight: "700",
+      marginTop: "4px",
+    }}
+  >
+    🏅 {item.badge}
+  </div>
+)}
+    
+</div>
                 </div>
 
                 {/* Expanded details */}
