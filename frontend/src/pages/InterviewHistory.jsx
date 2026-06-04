@@ -152,6 +152,47 @@ const InterviewHistory = () => {
       )}
 
       {/* History List */}
+      {/* Learning Roadmap Section */}
+{!loading && history.length > 0 && history[0]?.type === "ai" && (
+  <div
+    style={{
+      background: "#fff",
+      borderRadius: "16px",
+      padding: "24px",
+      marginBottom: "24px",
+      boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+    }}
+  >
+    <h2>🗺️ Personalized Learning Roadmap</h2>
+
+    <p>
+      <strong>Current Score:</strong> {history[0]?.score || 0}/100
+    </p>
+
+    <p>
+    <strong>Progress:</strong> {history[0]?.score || 0}% → 70%
+    </p>
+
+    {history[0]?.gaps?.length > 0 && (
+      <>
+        <h3>🎯 Priority Skills</h3>
+        <ul>
+          {history[0].gaps.map((gap, index) => (
+            <li key={index}>{gap}</li>
+          ))}
+        </ul>
+      </>
+    )}
+
+    <h3>🚀 Action Plan</h3>
+    <ol>
+      <li>Improve weak areas identified in the interview</li>
+      <li>Practice technical questions regularly</li>
+      <li>Complete another AI interview</li>
+      <li>Increase score above 70%</li>
+    </ol>
+  </div>
+)}
       {!loading && history.length > 0 && (
         <div className="ih-list">
           {history.map((item, idx) => {
@@ -189,15 +230,32 @@ const InterviewHistory = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="ih-card__right">
-                    {item.score != null && (
-                      <div className="ih-card__score" style={{ color: scoreColor(item.score) }}>
-                        <span className="ih-card__score-value">{typeof item.score === "number" ? item.score.toFixed(1) : item.score}</span>
-                        <span className="ih-card__score-label">{scoreLabel(item.score)}</span>
-                      </div>
-                    )}
-                    <span className={`ih-card__chevron${isExpanded ? " ih-card__chevron--open" : ""}`}>▾</span>
-                  </div>
+                  <div className="ih-card__score" style={{ color: scoreColor(item.score) }}>
+    <span className="ih-card__score-value">
+        {typeof item.score === "number" ? item.score.toFixed(1) : item.score}
+    </span>
+
+    <span className="ih-card__score-label">
+        {scoreLabel(item.score)}
+    </span>
+
+    {item.badge && (
+  <div
+    style={{
+      background: "#fee2e2",
+      color: "#b91c1c",
+      padding: "4px 8px",
+      borderRadius: "12px",
+      fontSize: "12px",
+      fontWeight: "700",
+      marginTop: "4px",
+    }}
+  >
+    🏅 {item.badge}
+  </div>
+)}
+    
+</div>
                 </div>
 
                 {/* Expanded details */}
