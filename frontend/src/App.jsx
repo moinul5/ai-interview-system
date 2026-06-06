@@ -33,8 +33,9 @@ import InterviewVoice from "./pages/InterviewVoice";
 import InterviewAI    from "./pages/InterviewAI";
 import InterviewVideo from "./pages/InterviewVideo";
 import InterviewHistory from "./pages/InterviewHistory";
+import Pricing        from "./pages/Pricing";
 import Profile        from "./pages/Profile";
-import NotFound  from "./pages/NotFound";
+import NotFound       from "./pages/NotFound";
 
 function App() {
   return (
@@ -67,6 +68,7 @@ function App() {
               <Route path="/interview/ai"    element={<InterviewAI />} />
               <Route path="/interview/video" element={<InterviewVideo />} />
               <Route path="/interview/history" element={<InterviewHistory />} />
+              <Route path="/pricing"         element={<Pricing />} />
               <Route path="/profile"         element={<Profile />} />
             </Route>
           </Route>
