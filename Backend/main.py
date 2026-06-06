@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-
+from app.pricing import router as pricing_router
 from app.database import engine
 from app.auth.router import router as auth_router
 from app.quiz_routes.quiz import router as quiz_router
@@ -31,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(pricing_router)
 app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(quiz_router)
