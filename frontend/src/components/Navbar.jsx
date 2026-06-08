@@ -9,6 +9,7 @@
 
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import NotificationBell from "./NotificationBell";
 import {
   MdHome,
   MdDashboard,
@@ -66,6 +67,9 @@ const Navbar = () => {
                 <MdDescription size={16} />
                 Resume
               </NavLink>
+            </li>
+            <li>
+              <NotificationBell />
             </li>
             <li>
               <NavLink
