@@ -1,26 +1,23 @@
+/**
+ * AdminSidebar.jsx
+ * ----------------
+ * Admin-specific sidebar navigation.
+ * Same styling pattern as the main Sidebar component.
+ */
+
 import { NavLink } from "react-router-dom";
-import {
-  MdDashboard,
-  MdDescription,
-  MdEditDocument,
-  MdPerson,
-  MdMic,
-  MdVideoCall,
-} from "react-icons/md";
+import { MdDashboard, MdPeople, MdVideoCall, MdWork } from "react-icons/md";
 
 const navItems = [
-  { label: "Dashboard",       to: "/dashboard",      icon: <MdDashboard size={20} /> },
-  { label: "Resume Analysis", to: "/resume",         icon: <MdDescription size={20} /> },
-  { label: "Resume Builder",  to: "/resume-builder", icon: <MdEditDocument size={20} /> },
-  { label: "Interview",       to: "/interview",      icon: <MdMic size={20} /> },
-  { label: "My Interviews",   to: "/candidate/interviews", icon: <MdVideoCall size={20} /> },
-  { label: "Profile",         to: "/profile",        icon: <MdPerson size={20} /> },
+  { label: "Dashboard",       to: "/admin/dashboard",  icon: <MdDashboard size={20} /> },
+  { label: "User Management", to: "/admin/users",       icon: <MdPeople size={20} /> },
+  { label: "Interviews",      to: "/admin/interviews",  icon: <MdVideoCall size={20} /> },
+  { label: "Job Positions",   to: "/admin/jobs",        icon: <MdWork size={20} /> },
 ];
 
-const Sidebar = () => {
+const AdminSidebar = () => {
   return (
     <aside className="sidebar">
-
       <nav className="sidebar__nav">
         <ul className="sidebar__list">
           {navItems.map(({ label, to, icon }) => (
@@ -42,4 +39,4 @@ const Sidebar = () => {
   );
 };
 
-export default Sidebar;
+export default AdminSidebar;

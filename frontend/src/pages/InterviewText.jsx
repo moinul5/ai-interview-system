@@ -1,20 +1,4 @@
-/**
- * InterviewText.jsx
- * -----------------
- * Text MCQ interview session page.
- *
- * DB Tables used:
- *   - aptitude_quiz_questions  (question_text, option_a/b/c/d, correct_option, marks)
- *   - aptitude_quiz_submissions (submission_id, score_obtained, max_score, answers_json)
- *
- * API Endpoints (backend team to implement):
- *   GET  /interview/questions/mcq?category=&difficulty=&limit=10
- *        → { questions: [ { quiz_question_id, question_text, option_a, option_b, option_c, option_d, marks } ] }
- *   POST /interview/submit/mcq
- *        → { submission_id, score_obtained, max_score, results: [{quiz_question_id, correct_option, selected, is_correct}] }
- *
- * Route: /interview/text
- */
+
 
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -257,9 +241,7 @@ const InterviewText = () => {
 
     return (
       <div className="page iv-session-page">
-        {usingMock && (
-          <div className="iv-mock-banner">⚠ Backend not connected — showing sample questions. Answers are not saved.</div>
-        )}
+      
 
         {/* Progress bar */}
         <div className="iv-progress-bar">

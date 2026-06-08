@@ -12,6 +12,13 @@ from app.quiz_routes.quiz import router as quiz_router
 from app.resume_routes.resume import router as resume_router
 from app.interview_routes.interview import router as interview_router
 from app.voice_interview_routes.voice_interview import router as voice_interview_router
+from app.admin_routes.users import router as admin_users_router
+from app.admin_routes.interviews import router as admin_interviews_router
+from app.admin_routes.analytics import router as admin_analytics_router
+from app.admin_routes.jobs import router as admin_jobs_router
+from app.scheduling_routes.candidate import router as candidate_router
+from app.scheduling_routes.interviewer import router as interviewer_router
+from app.notification_routes.notifications import router as notification_router
 
 load_dotenv()
 
@@ -37,6 +44,13 @@ app.include_router(resume_router)
 app.include_router(quiz_router)
 app.include_router(interview_router)
 app.include_router(voice_interview_router)
+app.include_router(admin_users_router)
+app.include_router(admin_interviews_router)
+app.include_router(admin_analytics_router)
+app.include_router(admin_jobs_router)
+app.include_router(candidate_router)
+app.include_router(interviewer_router)
+app.include_router(notification_router)
 
 
 @app.get("/")

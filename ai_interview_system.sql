@@ -213,7 +213,15 @@ CREATE TABLE `interviews` (
   `interviewer_id` int(11) DEFAULT NULL,
   `position_id` int(11) DEFAULT NULL,
   `interview_date` datetime DEFAULT NULL,
-  `status` enum('scheduled','completed','cancelled') DEFAULT 'scheduled',
+  `interview_type` enum('technical','hr','behavioral','final','coding') DEFAULT 'technical',
+  `duration_minutes` int(11) DEFAULT 60,
+  `meeting_link` varchar(500) DEFAULT NULL,
+  `calendar_event_id` varchar(255) DEFAULT NULL,
+  `timezone` varchar(100) DEFAULT NULL,
+  `confirmed_at` datetime DEFAULT NULL,
+  `cancelled_reason` text DEFAULT NULL,
+  `interview_round` int(11) DEFAULT 1,
+  `status` enum('pending','time_selected','waiting_confirmation','confirmed','reschedule_requested','ongoing','completed','cancelled','missed') DEFAULT 'pending',
   `total_score` decimal(5,2) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -222,8 +230,77 @@ CREATE TABLE `interviews` (
 -- Dumping data for table `interviews`
 --
 
-INSERT INTO `interviews` (`interview_id`, `candidate_id`, `interviewer_id`, `position_id`, `interview_date`, `status`, `total_score`, `created_at`) VALUES
-(1, 1, 1, 1, '2026-05-07 22:50:00', 'completed', 85.50, '2026-05-07 16:48:24');
+INSERT INTO `interviews` (`interview_id`, `candidate_id`, `interviewer_id`, `position_id`, `interview_date`, `interview_type`, `duration_minutes`, `meeting_link`, `calendar_event_id`, `timezone`, `confirmed_at`, `cancelled_reason`, `interview_round`, `status`, `total_score`, `created_at`) VALUES
+(1, 1, 1, 1, '2026-05-07 22:50:00', 'technical', 60, NULL, NULL, 'Asia/Dhaka', NULL, NULL, 1, 'completed', 85.50, '2026-05-07 16:48:24');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `interviewer_availability`
+--
+
+CREATE TABLE `interviewer_availability` (
+  `availability_id` int(11) NOT NULL,
+  `interviewer_id` int(11) NOT NULL,
+  `start_time` datetime NOT NULL,
+  `end_time` datetime NOT NULL,
+  `is_booked` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `interview_schedule_requests`
+--
+
+CREATE TABLE `interview_schedule_requests` (
+  `request_id` int(11) NOT NULL,
+  `interview_id` int(11) NOT NULL,
+  `candidate_id` int(11) NOT NULL,
+  `interviewer_id` int(11) NOT NULL,
+  `requested_start` datetime DEFAULT NULL,
+  `requested_end` datetime DEFAULT NULL,
+  `status` enum('candidate_selected','accepted','rejected','reschedule') DEFAULT NULL,
+  `suggested_by` enum('candidate','interviewer') DEFAULT NULL,
+  `message` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `notifications`
+--
+
+CREATE TABLE `notifications` (
+  `notification_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `title` varchar(255) DEFAULT NULL,
+  `message` text DEFAULT NULL,
+  `type` enum('email','in_app','reminder') DEFAULT 'in_app',
+  `is_read` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `interviewer_feedback`
+--
+
+CREATE TABLE `interviewer_feedback` (
+  `feedback_id` int(11) NOT NULL,
+  `interview_id` int(11) NOT NULL,
+  `interviewer_id` int(11) NOT NULL,
+  `technical_score` decimal(5,2) DEFAULT NULL,
+  `communication_score` decimal(5,2) DEFAULT NULL,
+  `problem_solving_score` decimal(5,2) DEFAULT NULL,
+  `overall_score` decimal(5,2) DEFAULT NULL,
+  `recommendation` enum('hire','maybe','reject') DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -413,6 +490,37 @@ ALTER TABLE `interviews`
   ADD KEY `fk_interview_position` (`position_id`);
 
 --
+-- Indexes for table `interviewer_availability`
+--
+ALTER TABLE `interviewer_availability`
+  ADD PRIMARY KEY (`availability_id`),
+  ADD KEY `fk_avail_interviewer` (`interviewer_id`);
+
+--
+-- Indexes for table `interview_schedule_requests`
+--
+ALTER TABLE `interview_schedule_requests`
+  ADD PRIMARY KEY (`request_id`),
+  ADD KEY `fk_sr_interview` (`interview_id`),
+  ADD KEY `fk_sr_candidate` (`candidate_id`),
+  ADD KEY `fk_sr_interviewer` (`interviewer_id`);
+
+--
+-- Indexes for table `notifications`
+--
+ALTER TABLE `notifications`
+  ADD PRIMARY KEY (`notification_id`),
+  ADD KEY `fk_notif_user` (`user_id`);
+
+--
+-- Indexes for table `interviewer_feedback`
+--
+ALTER TABLE `interviewer_feedback`
+  ADD PRIMARY KEY (`feedback_id`),
+  ADD KEY `fk_ifb_interview` (`interview_id`),
+  ADD KEY `fk_ifb_interviewer` (`interviewer_id`);
+
+--
 -- Indexes for table `interview_questions`
 --
 ALTER TABLE `interview_questions`
@@ -500,6 +608,30 @@ ALTER TABLE `interviews`
   MODIFY `interview_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
+-- AUTO_INCREMENT for table `interviewer_availability`
+--
+ALTER TABLE `interviewer_availability`
+  MODIFY `availability_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `interview_schedule_requests`
+--
+ALTER TABLE `interview_schedule_requests`
+  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `notifications`
+--
+ALTER TABLE `notifications`
+  MODIFY `notification_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `interviewer_feedback`
+--
+ALTER TABLE `interviewer_feedback`
+  MODIFY `feedback_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `interview_questions`
 --
 ALTER TABLE `interview_questions`
@@ -583,6 +715,33 @@ ALTER TABLE `interviews`
   ADD CONSTRAINT `fk_interview_candidate` FOREIGN KEY (`candidate_id`) REFERENCES `candidates` (`candidate_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_interview_interviewer` FOREIGN KEY (`interviewer_id`) REFERENCES `interviewers` (`interviewer_id`) ON DELETE SET NULL,
   ADD CONSTRAINT `fk_interview_position` FOREIGN KEY (`position_id`) REFERENCES `job_positions` (`position_id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `interviewer_availability`
+--
+ALTER TABLE `interviewer_availability`
+  ADD CONSTRAINT `fk_avail_interviewer` FOREIGN KEY (`interviewer_id`) REFERENCES `interviewers` (`interviewer_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `interview_schedule_requests`
+--
+ALTER TABLE `interview_schedule_requests`
+  ADD CONSTRAINT `fk_sr_interview` FOREIGN KEY (`interview_id`) REFERENCES `interviews` (`interview_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_sr_candidate` FOREIGN KEY (`candidate_id`) REFERENCES `candidates` (`candidate_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_sr_interviewer` FOREIGN KEY (`interviewer_id`) REFERENCES `interviewers` (`interviewer_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `notifications`
+--
+ALTER TABLE `notifications`
+  ADD CONSTRAINT `fk_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `interviewer_feedback`
+--
+ALTER TABLE `interviewer_feedback`
+  ADD CONSTRAINT `fk_ifb_interview` FOREIGN KEY (`interview_id`) REFERENCES `interviews` (`interview_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_ifb_interviewer` FOREIGN KEY (`interviewer_id`) REFERENCES `interviewers` (`interviewer_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `interview_questions`
