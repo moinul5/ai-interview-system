@@ -57,7 +57,7 @@ MYSQL_PASSWORD=
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_DATABASE=ai_interview_system
-GROQ_API_KEY=your_groq_key_here
+GEMINI_API_KEY=your_groq_key_here
 JWT_SECRET_KEY=your_secret
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:5174
@@ -66,7 +66,7 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,h
 | Variable | Purpose |
 |----------|---------|
 | `MYSQL_*` | MySQL connection parameters |
-| `GROQ_API_KEY` | API key for Groq AI (Llama 3.1) |
+| `GEMINI_API_KEY` | API key for Groq AI (Llama 3.1) |
 | `JWT_SECRET_KEY` | Secret used for JWT token signing |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry duration (default: 1440 = 24h) |
 | `CORS_ORIGINS` | Comma-separated list of allowed frontend origins |

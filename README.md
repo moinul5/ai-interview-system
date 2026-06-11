@@ -44,6 +44,9 @@ Authentication is simple password-based (no JWT tokens required).
 | 👤 Profile Page | View your account info and role |
 | 📊 Dashboard | Overview of your activity |
 | 🛡️ Route Protection | Dashboard & profile are only accessible when logged in |
+| 🎤 Voice Interview | Speak your answer, get AI-powered evaluation and score |
+| 🤖 AI Interview | Personalized role-based interview with AI-generated questions + evaluation |
+| 🎥 Video Interview Analysis | Camera-based interview with real-time MediaPipe face tracking, speech transcript, and Groq AI answer evaluation — full report saved to DB |
 
 ---
 
@@ -67,6 +70,9 @@ Authentication is simple password-based (no JWT tokens required).
 | **Vite** | Build tool / dev server |
 | **React Router** | Client-side routing |
 | **Axios** | HTTP requests to backend |
+| **MediaPipe Face Landmarker** | Real-time face & eye tracking via CDN (no install needed) |
+| **MediaRecorder API** | Native browser video + audio recording |
+| **Web Speech API** | In-browser speech-to-text for live transcription |
 
 ### Database
 | Tool | Purpose |
@@ -285,6 +291,19 @@ Then open your browser at: **http://localhost:5173**
 | POST | `/api/interviews` | `{ candidate_profile, question_count }` | `{ session_id, questions: [{id, question, competency, ideal_answer_signals}], source }` |
 | POST | `/api/interviews/{session_id}/submit` | `{ answers: [{question_id, answer}] }` | `{ session_id, evaluation: {...}, recommended_courses: [...] }` |
 
+### Interview — Video Analysis
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| POST | `/api/video/start-session` | `{ user_id, session_id, desired_role, experience_level, question_count }` | `{ session_id, status }` |
+| POST | `/api/video/upload-analysis` | JSON body with all scores + transcript | `{ status, analysis_id, session_id, scores: {...} }` |
+| POST | `/api/video/generate-feedback` | `{ session_id, questions }` | `{ status, source, feedback: { summary, strengths, weaknesses, answer_evaluations, answer_content_score, updated_confidence_score, ... } }` |
+| GET | `/api/video/report/{session_id}` | — | Full video report from DB |
+
+### Interview History
+| Method | Endpoint | Body / Params | Response |
+|--------|----------|---------------|----------|
+| GET | `/interview/history` | `?interview_type=voice\|ai\|video` | `{ history: [...], total }` |
+
 ### Health Check
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -403,7 +422,8 @@ CREATE TABLE built_resumes (
 | `/interview/text` | Text MCQ Interview | 🔒 Must be logged in |
 | `/interview/voice` | Voice Interview | 🔒 Must be logged in |
 | `/interview/ai` | AI Interview (Personalized) | 🔒 Must be logged in |
-| `/interview/video` | Robot Video Viva | 🔒 Must be logged in |
+| `/interview/video` | Video Interview Analysis | 🔒 Candidates only (role = candidate) |
+| `/interview/history` | Interview History (Voice + AI + Video) | 🔒 Must be logged in |
 | `/profile` | Profile | 🔒 Must be logged in |
 
 ---
@@ -678,6 +698,293 @@ Response:
 - `audio_path` in `answers` table should store the saved audio file path
 - Use Groq or Gemini AI to compare `answer_text` against `expected_answer` and generate `feedback_text` + `score`
 - Frontend file: `frontend/src/pages/InterviewText.jsx` and `InterviewVoice.jsx`
+
+---
+
+## 🎥 Video Interview Analysis System
+
+> **Route:** `/interview/video`  
+> **Access:** Candidates only (role must be `candidate`)  
+> **Frontend file:** `frontend/src/pages/InterviewVideo.jsx`  
+> **Backend file:** `Backend/app/video_interview_routes/video_interview.py`
+
+### Overview
+
+The Video Interview Analysis System is a fully in-browser, camera-based interview platform. It records the candidate on webcam, tracks facial metrics in real time using MediaPipe, transcribes speech automatically, then sends everything to Groq AI for a detailed evaluation report. Results are saved to MySQL and viewable in Interview History.
+
+---
+
+### 🔄 Interview Flow
+
+```
+1. PROFILE PHASE
+   └─ Loads candidate profile from /users/me
+   └─ Fetches AI-generated questions from /api/interviews
+
+2. PERMISSION PHASE
+   └─ Requests camera + microphone access
+   └─ Loads MediaPipe Face Landmarker (CDN — no install)
+
+3. SESSION PHASE  (per question)
+   └─ Candidate reads question, clicks "Start Recording"
+   └─ MediaRecorder records video
+   └─ MediaPipe tracks: eye contact, face visibility, head stability (frame-by-frame)
+   └─ Web Speech API transcribes spoken answer in real time
+   └─ Candidate clicks "Stop & Next"
+   └─ Repeat for all questions
+
+4. SUBMIT PHASE
+   └─ POST /api/video/start-session   → creates DB session
+   └─ POST /api/video/upload-analysis → saves all scores + transcript to DB
+   └─ POST /api/video/generate-feedback → Groq AI evaluates Q&A, returns full report
+   └─ Updated confidence score + answer quality score written back to DB
+
+5. RESULT PHASE
+   └─ Displays overall score, confidence breakdown, AI summary
+   └─ Shows per-question answer evaluations with scores
+   └─ Full report saved — viewable at /interview/history → Video tab
+```
+
+---
+
+### 📊 Metrics Captured
+
+| Metric | How it's measured |
+|--------|------------------|
+| 👁 Eye Contact Score | % of frames where iris landmarks point toward camera (MediaPipe) |
+| 😊 Face Visibility Score | % of frames where a face is detected at all |
+| 📐 Head Stability Score | Inverse of nose-tip movement variance across frames |
+| 🗣 Speech Clarity Score | Inverse of filler word density in transcript |
+| 💬 Communication Score | Blend of speech clarity + filler score + words-per-minute |
+| 🔁 Filler Words | Count of: "um", "uh", "like", "you know", "basically", "actually", "so", "right" |
+| 🧠 Answer Quality Score | Groq AI rates each spoken answer (0–100); average across all questions |
+
+---
+
+### 💪 Confidence Score Formula
+
+The confidence score uses a **weighted blend** of delivery + content metrics:
+
+**With AI answer evaluation (Groq available):**
+```
+Confidence = Eye Contact×25% + Head Stability×15% + Face Visibility×10%
+           + Speech Clarity×15% + Filler Score×10% + Answer Quality×25%
+```
+
+**Without AI (fallback — MediaPipe only):**
+```
+Confidence = Eye Contact×30% + Head Stability×20% + Face Visibility×15%
+           + Speech Clarity×20% + Filler Score×15%
+```
+
+**Overall Video Score:**
+```
+Overall = Confidence×60% + Speech Clarity×40%
+```
+
+---
+
+### 🗄️ Database Tables
+
+#### `video_interview_analysis`
+| Column | Type | Description |
+|--------|------|-------------|
+| `analysis_id` | INT PK AUTO_INCREMENT | |
+| `session_id` | VARCHAR(36) FK → `ai_interview_sessions` | Links to the question session |
+| `user_id` | INT FK → `users` | Candidate who did the interview |
+| `eye_contact_score` | DECIMAL(5,2) | 0–100 |
+| `face_visibility_score` | DECIMAL(5,2) | 0–100 |
+| `head_stability_score` | DECIMAL(5,2) | 0–100 |
+| `speech_clarity_score` | DECIMAL(5,2) | 0–100 |
+| `communication_score` | DECIMAL(5,2) | 0–100 |
+| `filler_words_count` | INT | Raw count of filler words |
+| `words_per_minute` | INT | Speaking pace |
+| `confidence_score` | DECIMAL(5,2) | Weighted delivery score |
+| `overall_video_score` | DECIMAL(5,2) | Final score shown to candidate |
+| `transparency_score` | DECIMAL(5,2) | Averaged transparency metric |
+| `transcript` | LONGTEXT | Full speech transcript (all questions) |
+| `strengths_json` | TEXT | JSON array of strength strings |
+| `weaknesses_json` | TEXT | JSON array of weakness strings |
+| `improvement_suggestions_json` | TEXT | JSON array of suggestions |
+| `summary` | TEXT | AI-generated narrative summary |
+| `answer_evaluations_json` | LONGTEXT | JSON array: `[{question, answer, score, feedback}]` |
+| `analysis_source` | ENUM('mediapipe','hybrid') | `hybrid` = AI-enhanced |
+| `created_at` | TIMESTAMP | Auto set on insert |
+
+> Create this table by importing the latest `ai_interview_system.sql`, or run:
+
+```sql
+CREATE TABLE video_interview_analysis (
+  analysis_id                   INT PRIMARY KEY AUTO_INCREMENT,
+  session_id                    VARCHAR(36),
+  user_id                       INT,
+  eye_contact_score             DECIMAL(5,2) DEFAULT 0,
+  face_visibility_score         DECIMAL(5,2) DEFAULT 0,
+  head_stability_score          DECIMAL(5,2) DEFAULT 0,
+  speech_clarity_score          DECIMAL(5,2) DEFAULT 0,
+  communication_score           DECIMAL(5,2) DEFAULT 0,
+  filler_words_count            INT DEFAULT 0,
+  words_per_minute              INT DEFAULT 0,
+  confidence_score              DECIMAL(5,2) DEFAULT 0,
+  overall_video_score           DECIMAL(5,2) DEFAULT 0,
+  transparency_score            DECIMAL(5,2) DEFAULT 0,
+  transcript                    LONGTEXT,
+  strengths_json                TEXT,
+  weaknesses_json               TEXT,
+  improvement_suggestions_json  TEXT,
+  summary                       TEXT,
+  answer_evaluations_json       LONGTEXT,
+  analysis_source               ENUM('mediapipe','hybrid') DEFAULT 'mediapipe',
+  created_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (session_id) REFERENCES ai_interview_sessions(session_id) ON DELETE SET NULL,
+  FOREIGN KEY (user_id)    REFERENCES users(user_id) ON DELETE SET NULL
+);
+```
+
+---
+
+### 📡 API Endpoints — Video Interview
+
+#### `POST /api/video/start-session`
+Creates a record in `ai_interview_sessions` tied to the candidate.
+
+Request:
+```json
+{
+  "user_id": 3,
+  "session_id": "uuid-from-ai-backend",
+  "desired_role": "Backend Engineer",
+  "experience_level": "mid",
+  "question_count": 5
+}
+```
+Response:
+```json
+{ "session_id": "uuid", "status": "session_created" }
+```
+
+---
+
+#### `POST /api/video/upload-analysis`
+Saves MediaPipe scores and full transcript after the recording.
+
+Request body includes all scores + filler count + WPM + transcript (see `InterviewVideo.jsx → submitInterview`).
+
+Response:
+```json
+{
+  "status": "analysis_saved",
+  "analysis_id": 12,
+  "session_id": "uuid",
+  "scores": {
+    "eye_contact_score": 72.5,
+    "face_visibility_score": 88.0,
+    "head_stability_score": 91.0,
+    "speech_clarity_score": 83.0,
+    "communication_score": 79.5,
+    "filler_words_count": 3,
+    "words_per_minute": 128,
+    "confidence_score": 67.4,
+    "overall_video_score": 73.6
+  }
+}
+```
+
+---
+
+#### `POST /api/video/generate-feedback`
+Calls Groq AI to evaluate each answer, then patches the DB with the updated scores.
+
+Request:
+```json
+{
+  "session_id": "uuid",
+  "questions": [
+    { "id": "q1", "question": "Tell me about a challenging project..." }
+  ]
+}
+```
+
+Response:
+```json
+{
+  "status": "feedback_generated",
+  "session_id": "uuid",
+  "source": "hybrid",
+  "feedback": {
+    "summary": "The candidate showed strong eye contact but answered only 3 of 5 questions...",
+    "strengths": ["Maintained good eye contact", "Clear speech pace"],
+    "weaknesses": ["Did not answer 2 questions", "Frequent filler words"],
+    "improvement_suggestions": ["Practice timed answers", "Record yourself speaking"],
+    "communication_feedback": ["128 WPM is ideal", "3 filler words detected"],
+    "body_language_feedback": ["Eye contact 72%", "Head stability 91%"],
+    "overall_video_score": 73,
+    "answer_content_score": 58,
+    "updated_confidence_score": 69,
+    "answer_evaluations": [
+      {
+        "question": "Tell me about a challenging project...",
+        "answer": "I built a microservices backend using FastAPI...",
+        "score": 82,
+        "feedback": "Strong answer with concrete examples. Could mention outcome metrics."
+      },
+      {
+        "question": "Describe a time you handled conflict...",
+        "answer": "(No answer recorded)",
+        "score": 0,
+        "feedback": "No answer was provided for this question."
+      }
+    ]
+  }
+}
+```
+
+> ⚠️ **Anti-hallucination guarantee:** The backend pre-parses the actual transcript before calling Groq. Unanswered questions are always forced to `score: 0` and `answer: "(No answer recorded)"` — Groq cannot invent answers.
+
+---
+
+#### `GET /api/video/report/{session_id}`
+Returns the full saved report for a session.
+
+---
+
+### 🕵️ How Anti-Hallucination Works
+
+A common LLM problem is fabricating plausible answers when the candidate said nothing. The system prevents this in three layers:
+
+1. **Pre-parse** — `_parse_qa_from_transcript()` extracts actual spoken text per question from the transcript *before* calling Groq
+2. **Explicit prompt injection** — The prompt shows Groq each question paired with the real answer text (or `<<NO ANSWER RECORDED>>` if empty)
+3. **Post-processing enforcement** — After Groq responds, every answer is checked against ground truth:
+   - If no real answer exists → `score` forced to `0`, `answer` forced to `"(No answer recorded)"`
+   - If a real answer exists → Groq's score/feedback is used, but the answer *text* is always replaced with the actual transcript (preventing Groq from paraphrasing)
+
+---
+
+### 📋 Interview History — Video Tab
+
+After completing a video interview, candidates can view their results at `/interview/history` → **🎥 Video** tab.
+
+Each history card shows (when expanded):
+- Overall score + Confidence score
+- Speaking pace (WPM) + Filler word count
+- Visual metric bars: Eye Contact, Face Visibility, Head Stability, Speech Clarity
+- AI Summary paragraph
+- Strengths & Areas to Improve lists
+- Per-question answer evaluations with scores and feedback
+- Clearly flagged unanswered questions (⚠ No answer recorded)
+
+---
+
+### ⚠️ Browser Requirements
+
+| Requirement | Notes |
+|-------------|-------|
+| Camera + Microphone | Required — browser will prompt for permission |
+| MediaPipe CDN access | Required — loads `@mediapipe/tasks-vision` from jsDelivr CDN |
+| Web Speech API | Chrome/Edge only — Firefox does not support `SpeechRecognition` |
+| MediaRecorder API | All modern browsers |
+
+> If MediaPipe CDN is blocked (firewall/proxy), the system falls back gracefully to transcript-only analysis. The interview still proceeds and all speech-based scoring still works.
 
 ---
 

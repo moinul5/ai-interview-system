@@ -3,7 +3,7 @@ ai_resume_analyzer.py
 ---------------------
 Uses Groq AI (llama3-8b-8192) to analyze resume text and return structured feedback.
 
-The API key is loaded from the GROQ_API_KEY environment variable,
+The API key is loaded from the GEMINI_API_KEY environment variable,
 stored in Backend/.env which is gitignored — never committed.
 
 IMPORTANT: groq is imported LAZILY (inside the function)
@@ -63,12 +63,12 @@ async def analyze_resume_with_ai(resume_text: str) -> dict:
     # ── 1. Load .env and read API key fresh on every call ────────────────────
     _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
     load_dotenv(dotenv_path=_env_path, override=True)
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
 
     # ── 2. Check API key ──────────────────────────────────────────────────────
     if not api_key:
-        return _fallback("GROQ_API_KEY is not set in Backend/.env")
+        return _fallback("GEMINI_API_KEY is not set in Backend/.env")
 
     # ── 3. Lazy import — expose the real error ────────────────────────────────
     try:
@@ -142,5 +142,5 @@ def _fallback(reason: str) -> dict:
         "Strengths":      [f"[AI unavailable] {reason}"],
         "Weaknesses":     ["Could not perform real analysis."],
         "Missing Skills": [],
-        "Suggestions":    ["Ensure GROQ_API_KEY is set in Backend/.env and groq package is installed."],
+        "Suggestions":    ["Ensure GEMINI_API_KEY is set in Backend/.env and groq package is installed."],
     }

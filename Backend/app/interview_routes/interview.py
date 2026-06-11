@@ -76,7 +76,7 @@ def _clean_json(text: str) -> str:
 
 
 def _groq_client() -> Any | None:
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key.startswith("your_") or Groq is None:
         return None
     return Groq(api_key=api_key)

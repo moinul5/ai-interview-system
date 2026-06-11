@@ -934,8 +934,48 @@ ALTER TABLE `voice_answers`
 ALTER TABLE `voice_ai_feedback`
   ADD CONSTRAINT `fk_vf_va` FOREIGN KEY (`va_id`) REFERENCES `voice_answers` (`va_id`) ON DELETE CASCADE;
 
+-- --------------------------------------------------------
+--
+-- Table structure for table `video_interview_analysis`
+-- Stores MediaPipe video metrics, transcript, and AI feedback per session
+-- Used by: Video Interview page (/interview/video)
+--
+
+CREATE TABLE IF NOT EXISTS `video_interview_analysis` (
+  `analysis_id`                   INT AUTO_INCREMENT PRIMARY KEY,
+  `session_id`                    VARCHAR(36) NOT NULL COMMENT 'FK to ai_interview_sessions.session_id',
+  `user_id`                       INT NOT NULL COMMENT 'FK to users.user_id (candidates only)',
+  `eye_contact_score`             DECIMAL(5,2) DEFAULT 0 COMMENT '% of frames with forward gaze, 0-100',
+  `face_visibility_score`         DECIMAL(5,2) DEFAULT 0 COMMENT '% of frames a face was detected, 0-100',
+  `head_stability_score`          DECIMAL(5,2) DEFAULT 0 COMMENT 'Stability score from nose landmark variance, 0-100',
+  `speech_clarity_score`          DECIMAL(5,2) DEFAULT 0 COMMENT 'Derived from filler words and WPM, 0-100',
+  `communication_score`           DECIMAL(5,2) DEFAULT 0 COMMENT 'Composite speech quality score, 0-100',
+  `filler_words_count`            INT DEFAULT 0 COMMENT 'Total count of filler words detected',
+  `words_per_minute`              INT DEFAULT 0 COMMENT 'WPM from transcript and duration',
+  `confidence_score`              DECIMAL(5,2) DEFAULT 0 COMMENT 'Weighted composite confidence, 0-100',
+  `overall_video_score`           DECIMAL(5,2) DEFAULT 0 COMMENT 'Final AI-adjusted overall score, 0-100',
+  `transcript`                    LONGTEXT COMMENT 'Full combined transcript from all answers',
+  `strengths_json`                LONGTEXT COMMENT 'JSON array of AI-generated strength strings',
+  `weaknesses_json`               LONGTEXT COMMENT 'JSON array of AI-generated weakness strings',
+  `improvement_suggestions_json`  LONGTEXT COMMENT 'JSON array of improvement suggestion strings',
+  `summary`                       LONGTEXT COMMENT 'Overall coaching and answer content summary',
+  `answer_evaluations_json`       LONGTEXT COMMENT 'JSON array of individual question-answer evaluations',
+  `transparency_score`            DECIMAL(5,2) DEFAULT 0 COMMENT 'Transparency/honesty metric, 0-100',
+  `analysis_source`               ENUM('mediapipe','ai','hybrid') DEFAULT 'hybrid',
+  `created_at`                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_video_analysis_session`
+    FOREIGN KEY (`session_id`) REFERENCES `ai_interview_sessions`(`session_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_video_analysis_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE,
+  INDEX `idx_video_session` (`session_id`),
+  INDEX `idx_video_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  COMMENT='Video interview metrics, transcript, and AI feedback per session';
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+

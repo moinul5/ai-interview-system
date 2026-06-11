@@ -1,5 +1,3 @@
-
-
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import apiClient from "../services/apiClient";
@@ -241,7 +239,6 @@ const InterviewText = () => {
 
     return (
       <div className="page iv-session-page">
-      
 
         {/* Progress bar */}
         <div className="iv-progress-bar">

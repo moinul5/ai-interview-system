@@ -1,126 +1,208 @@
 /**
  * InterviewVideo.jsx
  * ------------------
- * Phase 2: Robot video viva interview.
+ * Redesigned Video Interview with MediaPipe Face Analysis.
  *
- * Features:
- *   - Robot avatar asks AI-generated questions using browser SpeechSynthesis
- *   - User answers on camera using getUserMedia + MediaRecorder
- *   - Browser SpeechRecognition converts voice to live transcript when supported
- *   - Existing Groq-backed /api/interviews endpoint evaluates transcript answers
+ * Phases:
+ *   setup     → Role/skills selection + camera permission
+ *   session   → Live interview with robot questions, MediaPipe HUD, recording
+ *   processing → Upload metrics to backend + generate AI feedback
+ *   result    → Full inline report with scores, feedback, transparency
  *
- * Notes:
- *   - Video blobs are kept locally in the browser for preview/download.
- *   - Evaluation is based on transcript text. Chrome/Edge works best for STT.
+ * Tech stack:
+ *   - MediaPipe FaceLandmarker (CDN) via useMediaPipeAnalysis hook
+ *   - MediaRecorder API for video capture
+ *   - Web Speech API for live transcription
+ *   - Groq AI (via backend) for qualitative feedback
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import apiClient from "../services/apiClient";
+import {
+  uploadVideoAnalysis,
+  generateVideoFeedback,
+} from "../services/videoInterviewService";
+import { useMediaPipeAnalysis } from "../hooks/useMediaPipeAnalysis";
+import { useAuth } from "../context/AuthContext";
 
-const AI_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_AI_API_URL || "http://localhost:8000";
-const RECORD_MAX_SECONDS = 150;
-
-const COMMON_ROLES = [
-  "Frontend Developer",
-  "Backend Developer",
-  "Full Stack Developer",
-  "Software Engineer",
-  "Data Analyst",
-  "Machine Learning Engineer",
-  "UI/UX Designer",
-];
-
-const COMMON_SKILLS = ["React", "JavaScript", "Python", "FastAPI", "SQL", "DSA", "REST API", "Git"];
-
+// ─── Constants ────────────────────────────────────────────────────────────────
+const RECORD_MAX_SECONDS = 180;
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-const makeFallbackQuestions = (profile, count) => {
-  const role = profile.desired_role || "this role";
-  const skills = profile.current_skills || "your skills";
-  return Array.from({ length: count }, (_, i) => ({
-    id: `fallback_video_${i + 1}`,
+const COMMON_ROLES = [
+  "Frontend Developer", "Backend Developer", "Full Stack Developer",
+  "Software Engineer", "Data Analyst", "Machine Learning Engineer", "UI/UX Designer",
+];
+const COMMON_SKILLS = ["React", "JavaScript", "Python", "FastAPI", "SQL", "DSA", "REST API", "Git"];
+
+const FILLER_WORDS_LIST = ["um", "uh", "like", "basically", "actually"];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const makeLocalQuestions = (profile, count) =>
+  Array.from({ length: count }, (_, i) => ({
+    id: `local_${i + 1}`,
     question: [
-      `Tell me about yourself and why you are interested in ${role}.`,
-      `Explain one project where you used ${skills}. What was your contribution?`,
-      `What is a technical challenge you faced and how did you solve it?`,
-      `How do you keep yourself updated for ${role}?`,
-      `Why should we hire you for ${role}?`,
+      `Tell me about yourself and why you're interested in ${profile.desired_role}.`,
+      `Describe a project where you used ${profile.current_skills || "your skills"}. What was your contribution?`,
+      "Walk me through a difficult technical problem you solved and how you approached it.",
+      `How do you stay current with developments in ${profile.desired_role}?`,
+      `Why should we hire you for ${profile.desired_role}?`,
     ][i % 5],
     competency: i % 2 === 0 ? "Communication" : "Technical Depth",
-    difficulty: profile.experience_level || "mid",
-    expected_signals: ["Clear structure", "Relevant example", "Specific impact"],
   }));
+
+const getScoreGrade = (score) => {
+  if (score >= 85) return { label: "Excellent", color: "#10b981", bg: "rgba(16,185,129,0.12)" };
+  if (score >= 70) return { label: "Good",      color: "#7c3aed", bg: "rgba(124,58,237,0.12)" };
+  if (score >= 55) return { label: "Fair",      color: "#f59e0b", bg: "rgba(245,158,11,0.12)" };
+  return              { label: "Needs Work",  color: "#ef4444", bg: "rgba(239,68,68,0.12)" };
 };
 
-const RobotAvatar = ({ speaking, listening, question }) => (
-  <div className="video-robot-card">
-    <div className={`video-robot${speaking ? " video-robot--speaking" : ""}${listening ? " video-robot--listening" : ""}`}>
-      <div className="video-robot__antenna" />
-      <div className="video-robot__head">
-        <span className="video-robot__eye" />
-        <span className="video-robot__eye" />
-        <span className="video-robot__mouth" />
-      </div>
-      <div className="video-robot__body">AI</div>
+const getMetricLabel = (score) => {
+  if (score >= 80) return "Excellent";
+  if (score >= 65) return "Good";
+  if (score >= 50) return "Fair";
+  return "Needs Work";
+};
+
+const countFillerWords = (text) => {
+  const lower = text.toLowerCase();
+  return FILLER_WORDS_LIST.reduce((acc, w) => {
+    const matches = lower.match(new RegExp(`\\b${w}\\b`, "g"));
+    return acc + (matches ? matches.length : 0);
+  }, 0);
+};
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+const RobotAvatar = ({ speaking, listening }) => (
+  <div className={`vid-robot${speaking ? " vid-robot--speaking" : ""}${listening ? " vid-robot--listening" : ""}`}>
+    <div className="vid-robot__antenna" />
+    <div className="vid-robot__head">
+      <span className="vid-robot__eye" />
+      <span className="vid-robot__eye" />
+      <span className="vid-robot__mouth" />
     </div>
-    <div className="video-robot-bubble">
-      <div className="video-robot-bubble__label">🤖 Interview Bot</div>
-      <p>{question || "I will ask you viva-style questions. Answer clearly while looking at the camera."}</p>
+    <div className="vid-robot__body">AI</div>
+  </div>
+);
+
+const ScoreRing = ({ score, size = 140, color }) => {
+  const r = 52;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (score / 100) * circ;
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120" className="vid-score-ring">
+      <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="8" />
+      <circle
+        cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="8"
+        strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset}
+        transform="rotate(-90 60 60)"
+        style={{ transition: "stroke-dashoffset 1.2s ease" }}
+      />
+      <text x="60" y="55" textAnchor="middle" fill={color} fontSize="22" fontWeight="700">{Math.round(score)}</text>
+      <text x="60" y="72" textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="11">/100</text>
+    </svg>
+  );
+};
+
+const MetricBar = ({ label, score, icon }) => {
+  const grade = getMetricLabel(score);
+  const barColor = score >= 80 ? "#10b981" : score >= 65 ? "#7c3aed" : score >= 50 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="vid-metric-bar">
+      <div className="vid-metric-bar__header">
+        <span className="vid-metric-bar__icon">{icon}</span>
+        <span className="vid-metric-bar__label">{label}</span>
+        <span className="vid-metric-bar__score" style={{ color: barColor }}>{Math.round(score)}%</span>
+        <span className="vid-metric-bar__grade" style={{ color: barColor }}>{grade}</span>
+      </div>
+      <div className="vid-metric-bar__track">
+        <div
+          className="vid-metric-bar__fill"
+          style={{ width: `${score}%`, background: barColor, transition: "width 1s ease" }}
+        />
+      </div>
+    </div>
+  );
+};
+
+const LiveMetricHUD = ({ metrics }) => (
+  <div className="vid-hud">
+    <div className={`vid-hud__badge ${metrics.faceDetected ? "vid-hud__badge--ok" : "vid-hud__badge--warn"}`}>
+      {metrics.faceDetected ? "👁" : "⚠"} {metrics.faceDetected ? "Face OK" : "No Face"}
+    </div>
+    <div className={`vid-hud__badge ${metrics.eyeContact ? "vid-hud__badge--ok" : "vid-hud__badge--warn"}`}>
+      🎯 {metrics.eyeContact ? "Eye ✓" : "Eye ✗"}
+    </div>
+    <div className="vid-hud__badge vid-hud__badge--info">
+      📊 {Math.round(metrics.eye_contact_score ?? 0)}%
     </div>
   </div>
 );
 
+// ─── Main Component ───────────────────────────────────────────────────────────
 const InterviewVideo = () => {
   const navigate = useNavigate();
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const recognitionRef = useRef(null);
-  const timerRef = useRef(null);
-  const finalTranscriptRef = useRef("");
-  const recordingFlagRef = useRef(false);
+  const { user } = useAuth();
 
+  // Refs
+  const videoRef       = useRef(null);
+  const streamRef      = useRef(null);
+  const recorderRef    = useRef(null);
+  const chunksRef      = useRef([]);
+  const recognitionRef = useRef(null);
+  const timerRef       = useRef(null);
+  const startTimeRef   = useRef(null);
+  const finalTransRef  = useRef("");
+  const recordingFlag  = useRef(false);
+  const accTransRef    = useRef(""); // accumulated transcript for all answers
+
+  // MediaPipe hook
+  const {
+    isReady: mpReady,
+    loadError: mpError,
+    liveMetrics,
+    startAnalysis,
+    stopAnalysis,
+    getMetrics,
+    resetMetrics,
+  } = useMediaPipeAnalysis(videoRef);
+
+  // State
   const [phase, setPhase] = useState("setup");
   const [profile, setProfile] = useState({
-    desired_role: "",
-    experience_level: "mid",
-    current_skills: "",
-    interview_focus: "Video viva interview",
+    desired_role: "", experience_level: "mid", current_skills: "", interview_focus: "",
   });
   const [questionCount, setQuestionCount] = useState(3);
-  const [sessionId, setSessionId] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [videoAnswers, setVideoAnswers] = useState({});
-  const [result, setResult] = useState(null);
-  const [source, setSource] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [sessionId, setSessionId]     = useState(null);
+  const [questions, setQuestions]     = useState([]);
+  const [current, setCurrent]         = useState(0);
+  const [answers, setAnswers]         = useState({});  // questionId → transcript
+  const [source, setSource]           = useState("ai");
+  const [error, setError]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [recording, setRecording]     = useState(false);
+  const [listening, setListening]     = useState(false);
+  const [speaking, setSpeaking]       = useState(false);
+  const [recSeconds, setRecSeconds]   = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [sttSupported] = useState(Boolean(SpeechRecognition));
   const [mediaStatus, setMediaStatus] = useState({ audio: false, video: false });
-  const [transcriptLang, setTranscriptLang] = useState("en-US");
+  const [result, setResult]           = useState(null);
+  const [processingStep, setProcessingStep] = useState("");
+  const [sttSupported]                = useState(Boolean(SpeechRecognition));
+  const [transcriptLang]              = useState("en-US");
 
+  // Derived
   const q = questions[current];
-  const currentQuestionText = q?.question || q?.question_text || "";
   const answerText = answers[q?.id] || "";
   const progress = questions.length ? ((current + 1) / questions.length) * 100 : 0;
-  const recPct = (recordSeconds / RECORD_MAX_SECONDS) * 100;
+  const recPct = (recSeconds / RECORD_MAX_SECONDS) * 100;
 
-  const roleSuggestions = useMemo(() => COMMON_ROLES.filter(Boolean), []);
-
-  const updateProfile = (key, value) => setProfile((prev) => ({ ...prev, [key]: value }));
-
+  // ── Camera ────────────────────────────────────────────────────────────────
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setCameraReady(false);
     setMediaStatus({ audio: false, video: false });
@@ -129,90 +211,64 @@ const InterviewVideo = () => {
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-      const audio = stream.getAudioTracks().some((track) => track.readyState === "live" && track.enabled);
-      const video = stream.getVideoTracks().some((track) => track.readyState === "live" && track.enabled);
+      const audio = stream.getAudioTracks().some((t) => t.readyState === "live" && t.enabled);
+      const video = stream.getVideoTracks().some((t) => t.readyState === "live" && t.enabled);
       setMediaStatus({ audio, video });
       setCameraReady(video);
-      setError(audio ? "" : "Camera is on, but microphone audio was not detected. Allow microphone permission before recording.");
+      if (!audio) setError("Camera on, but microphone not detected. Please allow mic permissions.");
+      else setError("");
     } catch (err) {
       setMediaStatus({ audio: false, video: false });
-      setError(`Camera or microphone permission denied (${err?.name || "permission error"}). Please allow both permissions from your browser site settings.`);
+      setError(`Camera/microphone permission denied (${err?.name}). Allow both from browser settings.`);
     }
   };
 
-  const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
-  };
+  // ── Speech Synthesis ──────────────────────────────────────────────────────
+  const stopSpeaking = () => { window.speechSynthesis?.cancel(); setSpeaking(false); };
 
-  const speakQuestion = (text = currentQuestionText) => {
+  const speakText = (text) => {
     if (!text || !window.speechSynthesis) return;
     stopSpeaking();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.92;
-    utterance.pitch = 0.85;
-    utterance.volume = 1;
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 0.9; utt.pitch = 0.85; utt.volume = 1;
+    utt.onstart = () => setSpeaking(true);
+    utt.onend   = () => setSpeaking(false);
+    utt.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utt);
   };
 
+  // ── Speech Recognition ────────────────────────────────────────────────────
   const startRecognition = () => {
-    if (!SpeechRecognition) {
-      setError("Live transcript is not supported in this browser. Use Chrome/Edge or type the transcript manually.");
-      return;
-    }
-
+    if (!SpeechRecognition) return;
     try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = transcriptLang;
+    finalTransRef.current = answerText || "";
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = transcriptLang;
-    finalTranscriptRef.current = answerText || "";
-
-    recognition.onresult = (event) => {
+    rec.onresult = (e) => {
       let interim = "";
-      let finalText = finalTranscriptRef.current;
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const text = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += `${text} `;
-        else interim += text;
+      let final = finalTransRef.current;
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += `${e.results[i][0].transcript} `;
+        else interim += e.results[i][0].transcript;
       }
-      finalTranscriptRef.current = finalText;
-      const merged = `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
+      finalTransRef.current = final;
+      const merged = `${final} ${interim}`.replace(/\s+/g, " ").trim();
       if (q?.id) setAnswers((prev) => ({ ...prev, [q.id]: merged }));
     };
-
-    recognition.onend = () => {
+    rec.onend = () => {
       setListening(false);
-      // Chrome often stops speech recognition after a short silence. Restart while recording.
-      if (recordingFlagRef.current) {
-        setTimeout(() => {
-          if (recordingFlagRef.current) startRecognition();
-        }, 350);
-      }
+      if (recordingFlag.current) setTimeout(() => { if (recordingFlag.current) startRecognition(); }, 350);
     };
-    recognition.onerror = (event) => {
-      setListening(false);
-      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-        setError("Microphone permission is blocked for live transcript. Allow microphone permission from browser site settings.");
-      }
-    };
-
-    try {
-      recognition.start();
-      recognitionRef.current = recognition;
-      setListening(true);
-    } catch {
-      setListening(false);
-    }
+    rec.onerror = () => setListening(false);
+    try { rec.start(); recognitionRef.current = rec; setListening(true); } catch { setListening(false); }
   };
 
   const stopRecognition = () => {
@@ -221,15 +277,10 @@ const InterviewVideo = () => {
     setListening(false);
   };
 
+  // ── Session Start ─────────────────────────────────────────────────────────
   const startSession = async () => {
-    if (!profile.desired_role.trim()) {
-      setError("Please choose or type a role first.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setResult(null);
+    if (!profile.desired_role.trim()) { setError("Please select or type a role first."); return; }
+    setLoading(true); setError(""); setResult(null);
 
     try {
       const skills = profile.current_skills.split(",").map((s) => s.trim()).filter(Boolean);
@@ -239,83 +290,66 @@ const InterviewVideo = () => {
           experience_level: profile.experience_level,
           current_skills: skills,
           target_skills: [],
-          industry: "",
-          interview_focus: profile.interview_focus || "Video viva interview with communication and technical depth",
+          interview_focus: "Video interview with MediaPipe face analysis",
         },
         question_count: questionCount,
       });
-
-      const data = res.data;
-      setSessionId(data.session_id);
-      setQuestions(data.questions || []);
-      setSource(data.source || "ai");
+      setSessionId(res.data.session_id);
+      setQuestions(res.data.questions || []);
+      setSource(res.data.source || "ai");
     } catch {
       setSessionId(null);
-      setQuestions(makeFallbackQuestions(profile, questionCount));
+      setQuestions(makeLocalQuestions(profile, questionCount));
       setSource("fallback");
     } finally {
       setAnswers({});
-      setVideoAnswers({});
       setCurrent(0);
-      setPreviewUrl("");
-      setRecordSeconds(0);
+      setRecSeconds(0);
+      accTransRef.current = "";
+      resetMetrics();
       setPhase("session");
       setLoading(false);
-      setTimeout(() => startCamera(), 300);
+      setTimeout(startCamera, 400);
     }
   };
 
+  // ── Recording ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
     if (!streamRef.current) await startCamera();
     if (!streamRef.current) return;
-
-    const hasAudio = streamRef.current.getAudioTracks().some((track) => track.readyState === "live" && track.enabled);
-    const hasVideo = streamRef.current.getVideoTracks().some((track) => track.readyState === "live" && track.enabled);
-    setMediaStatus({ audio: hasAudio, video: hasVideo });
-    if (!hasAudio) {
-      setError("Microphone track is missing, so preview will have no audio and transcript may not work. Allow microphone permission and click Allow Camera again.");
+    if (!mediaStatus.audio && !streamRef.current.getAudioTracks().length) {
+      setError("Microphone not detected. Please allow mic access and try Allow Camera again.");
       return;
     }
 
-    setPreviewUrl("");
-    setRecordSeconds(0);
     chunksRef.current = [];
-    finalTranscriptRef.current = answerText || "";
+    finalTransRef.current = answerText || "";
     stopSpeaking();
 
-    try {
-      const mimeType = [
-        "video/webm;codecs=vp8,opus",
-        "video/webm;codecs=vp9,opus",
-        "video/webm",
-      ].find((type) => MediaRecorder.isTypeSupported(type));
+    const mimeType = ["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"]
+      .find(MediaRecorder.isTypeSupported);
 
+    try {
       const recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        const blobType = recorder.mimeType || mimeType || "video/webm";
-        const blob = new Blob(chunksRef.current, { type: blobType });
-        const url = URL.createObjectURL(blob);
-        setPreviewUrl(url);
-        if (q?.id) setVideoAnswers((prev) => ({ ...prev, [q.id]: { blob, url } }));
-      };
-      recordingFlagRef.current = true;
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {};
+
+      startTimeRef.current = Date.now();
+      recordingFlag.current = true;
       recorder.start(1000);
       setRecording(true);
+
+      startAnalysis(); // Start MediaPipe
       startRecognition();
 
       timerRef.current = setInterval(() => {
-        setRecordSeconds((seconds) => {
-          if (seconds + 1 >= RECORD_MAX_SECONDS) {
-            stopRecording();
-            return RECORD_MAX_SECONDS;
-          }
-          return seconds + 1;
+        setRecSeconds((s) => {
+          if (s + 1 >= RECORD_MAX_SECONDS) { stopRecording(); return RECORD_MAX_SECONDS; }
+          return s + 1;
         });
       }, 1000);
+      setError("");
     } catch {
       setError("Your browser could not start video recording. Try Chrome or Edge.");
     }
@@ -323,65 +357,196 @@ const InterviewVideo = () => {
 
   const stopRecording = () => {
     clearInterval(timerRef.current);
-    recordingFlagRef.current = false;
+    recordingFlag.current = false;
     stopRecognition();
+    stopAnalysis();
     try {
       if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     } catch { /* ignore */ }
     setRecording(false);
   };
 
+  // ── Navigation ────────────────────────────────────────────────────────────
   const goNext = () => {
     stopRecording();
     stopSpeaking();
-    setPreviewUrl(videoAnswers[questions[current + 1]?.id]?.url || "");
-    setRecordSeconds(0);
-    if (current < questions.length - 1) setCurrent((prev) => prev + 1);
+    setRecSeconds(0);
+    if (current < questions.length - 1) setCurrent((p) => p + 1);
   };
 
   const goPrev = () => {
     stopRecording();
     stopSpeaking();
-    setPreviewUrl(videoAnswers[questions[current - 1]?.id]?.url || "");
-    setRecordSeconds(0);
-    if (current > 0) setCurrent((prev) => prev - 1);
+    setRecSeconds(0);
+    if (current > 0) setCurrent((p) => p - 1);
   };
 
+  // ── Submit ────────────────────────────────────────────────────────────────
   const submitInterview = async () => {
     stopRecording();
     stopSpeaking();
-    setLoading(true);
-    setError("");
 
-    const answersPayload = questions.map((question) => ({
-      question_id: question.id,
-      answer: answers[question.id] || "",
-    }));
+    // Build combined transcript
+    const combinedTranscript = questions
+      .map((qItem, i) => {
+        const a = answers[qItem.id] || "";
+        return a ? `Q${i + 1}: ${qItem.question}\nAnswer: ${a}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+
+    // Calculate interview duration
+    const durationSeconds = startTimeRef.current
+      ? Math.round((Date.now() - startTimeRef.current) / 1000)
+      : recSeconds;
+
+    // Get final MediaPipe metrics
+    const mediaPipeMetrics = getMetrics();
+
+    setPhase("processing");
+    setProcessingStep("Uploading analysis metrics...");
+
+    const userId = user?.id;
+    if (!userId) {
+      setError("You must be logged in as a candidate to submit a video interview.");
+      setPhase("session");
+      return;
+    }
 
     try {
-      if (!sessionId) throw new Error("Fallback session cannot be saved to AI backend");
-      const res = await apiClient.post(`/api/interviews/${sessionId}/submit`, {
-        answers: answersPayload,
+      // Step 1: Upload metrics + transcript
+      setProcessingStep("📊 Computing your scores...");
+      const uploadResult = await uploadVideoAnalysis({
+        session_id: sessionId,
+        user_id: userId,
+        eye_contact_score: mediaPipeMetrics.eye_contact_score,
+        face_visibility_score: mediaPipeMetrics.face_visibility_score,
+        head_stability_score: mediaPipeMetrics.head_stability_score,
+        transcript: combinedTranscript,
+        duration_seconds: durationSeconds,
       });
-      const data = res.data;
-      setResult(data);
-    } catch {
-      const answered = answersPayload.filter((item) => item.answer.trim()).length;
-      const score = Math.min(90, Math.max(35, Math.round((answered / Math.max(1, questions.length)) * 70 + 20)));
+
+      // Step 2: Generate AI feedback
+      setProcessingStep("🤖 Generating AI coaching feedback...");
+      let feedbackResult = null;
+      if (sessionId) {
+        try {
+          feedbackResult = await generateVideoFeedback(sessionId);
+        } catch {
+          // Feedback generation is optional
+        }
+      }
+
+      // Build result object
+      const scores = uploadResult.scores || {};
+      const feedback = feedbackResult?.feedback || {};
+      const fillerBreakdown = uploadResult.filler_breakdown || {};
+
+      // Count filler words from transcript for display
+      const fillerCount = scores.filler_words_count ?? countFillerWords(combinedTranscript);
+
+      // Prefer AI-updated confidence/overall (blended with answer content quality)
+      const finalConfidence    = feedback.updated_confidence_score ?? scores.confidence_score;
+      const finalOverall       = feedback.overall_video_score       ?? scores.overall_video_score;
+      const answerContentScore = feedback.answer_content_score      ?? 0;
+
       setResult({
-        overall_score: score,
-        summary: "Fallback evaluation: video viva completed locally. Connect Groq backend for detailed AI feedback.",
-        strengths: ["Completed camera-based answers", "Practiced speaking in interview format"],
-        weaknesses: ["Detailed AI scoring unavailable in fallback mode"],
-        recommendations: ["Keep answers structured: Situation, Action, Result", "Use examples and measurable impact"],
+        session_id: sessionId,
+        scores: {
+          ...scores,
+          filler_words_count:   fillerCount,
+          confidence_score:     finalConfidence,
+          overall_video_score:  finalOverall,
+          answer_content_score: answerContentScore,
+        },
+        feedback: {
+          strengths: feedback.strengths || [],
+          weaknesses: feedback.weaknesses || [],
+          communication_feedback: feedback.communication_feedback || [],
+          body_language_feedback: feedback.body_language_feedback || [],
+          improvement_suggestions: feedback.improvement_suggestions || [],
+          transparency_breakdown: feedback.transparency_breakdown || {},
+          summary: feedback.summary || "",
+          answer_evaluations: feedback.answer_evaluations || [],
+        },
+        filler_breakdown: fillerBreakdown,
+        transcript: combinedTranscript,
+        analysis_source: feedbackResult?.source || "mediapipe",
+        desired_role: profile.desired_role,
       });
-    } finally {
+
       stopCamera();
-      setLoading(false);
+      setPhase("result");
+    } catch (err) {
+      // Fallback: compute scores locally
+      const metrics = getMetrics();
+      const fillerCount = countFillerWords(combinedTranscript);
+      const wpm = durationSeconds > 0
+        ? Math.round(combinedTranscript.split(/\s+/).filter(Boolean).length / (durationSeconds / 60))
+        : 0;
+
+      const fillerScore   = Math.max(0, 100 - fillerCount * 5);
+      const speechClarity = Math.max(0, Math.min(100, 100 - fillerCount * 3));
+      const eyeContact    = metrics.eye_contact_score;
+      const headStability = metrics.head_stability_score;
+      const faceVisibility= metrics.face_visibility_score;
+
+      // Basic answer quality estimate (no AI available — max 80)
+      const answeredQs = questions.filter((qItem) => (answers[qItem.id] || "").trim().length > 20);
+      const answerContentScore = questions.length > 0
+        ? Math.round((answeredQs.length / questions.length) * 80)
+        : 0;
+
+      const confidence = Math.round(
+        eyeContact * 0.25 + headStability * 0.15 + faceVisibility * 0.10 +
+        speechClarity * 0.15 + fillerScore * 0.10 + answerContentScore * 0.25
+      );
+
+      setResult({
+        session_id: null,
+        scores: {
+          eye_contact_score: eyeContact,
+          face_visibility_score: faceVisibility,
+          head_stability_score: headStability,
+          speech_clarity_score: speechClarity,
+          communication_score: Math.round((speechClarity + fillerScore) / 2),
+          filler_words_count: fillerCount,
+          words_per_minute: wpm,
+          confidence_score: confidence,
+          overall_video_score: Math.round(confidence * 0.6 + speechClarity * 0.4),
+          transparency_score: confidence,
+          answer_content_score: answerContentScore,
+        },
+        feedback: {
+          strengths: ["Camera-based interview completed successfully.", "You practiced speaking in interview format."],
+          weaknesses: eyeContact < 60 ? ["Eye contact could be improved — look directly at the camera."] : [],
+          communication_feedback: [`Estimated ${wpm} words per minute.`, `${fillerCount} filler words detected.`],
+          body_language_feedback: [`Eye contact: ${eyeContact}%`, `Head stability: ${headStability}%`],
+          improvement_suggestions: ["Practice maintaining eye contact with the camera.", "Use pauses instead of filler words."],
+          transparency_breakdown: { eye_contact: eyeContact, communication: speechClarity, posture: headStability, confidence },
+          summary: "Local analysis completed. The candidate completed the video recording session and responded to the target questions.",
+          answer_evaluations: questions.map((qItem) => {
+            const a = answers[qItem.id] || "";
+            return {
+              question: qItem.question,
+              answer: a || "(No answer recorded)",
+              score: a ? 75 : 0,
+              feedback: a ? "Good response captured." : "No response provided.",
+            };
+          }),
+        },
+        filler_breakdown: {},
+        transcript: combinedTranscript,
+        analysis_source: "mediapipe",
+        desired_role: profile.desired_role,
+      });
+
+      stopCamera();
       setPhase("result");
     }
   };
 
+  // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase === "session" && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -393,54 +558,65 @@ const InterviewVideo = () => {
     stopRecognition();
     stopSpeaking();
     stopCamera();
+    stopAnalysis();
   }, []);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE: SETUP
+  // ─────────────────────────────────────────────────────────────────────────
   if (phase === "setup") {
     return (
-      <div className="page video-page">
+      <div className="page vid-page">
         <button className="iv-back-btn" onClick={() => navigate("/interview")}>← Back to Interview Hub</button>
 
-        <div className="video-setup-grid">
-          <div className="video-setup-card">
-            <div className="video-setup-title-row">
-              <span className="video-setup-icon">🎥</span>
+        <div className="vid-setup-grid">
+          {/* Left: Form */}
+          <div className="vid-setup-card">
+            <div className="vid-setup-title-row">
+              <span className="vid-setup-icon">🎥</span>
               <div>
-                <h1>Robot Video Viva</h1>
-                <p>Robot asks questions, you answer on camera, speech becomes transcript, Groq evaluates.</p>
+                <h1>Video Interview Analysis</h1>
+                <p>Real-time face tracking + AI feedback on eye contact, posture, and communication.</p>
               </div>
             </div>
 
             {error && <div className="alert alert--error">{error}</div>}
+            {!mpReady && !mpError && (
+              <div className="vid-loading-badge">
+                <span className="auth-spinner" /> Loading MediaPipe face tracker...
+              </div>
+            )}
+            {mpError && (
+              <div className="vid-fallback-notice">
+                ⚠ Face tracking could not initialize ({mpError.slice(0, 80)}). Interview will proceed with transcript-only analysis.
+              </div>
+            )}
 
+            {/* Role */}
             <div className="form-group">
-              <label className="form-label">Role <span style={{ color: "var(--color-danger)" }}>*</span></label>
+              <label className="form-label">Target Role <span style={{ color: "var(--color-danger)" }}>*</span></label>
               <div className="ai-role-suggestions">
-                {roleSuggestions.map((role) => (
+                {COMMON_ROLES.map((role) => (
                   <button
-                    key={role}
-                    type="button"
+                    key={role} type="button"
                     className={`ai-role-chip${profile.desired_role === role ? " ai-role-chip--active" : ""}`}
-                    onClick={() => updateProfile("desired_role", role)}
-                  >
-                    {role}
-                  </button>
+                    onClick={() => setProfile((p) => ({ ...p, desired_role: role }))}
+                  >{role}</button>
                 ))}
               </div>
-              <input
-                className="form-input"
-                style={{ marginTop: "0.6rem" }}
-                value={profile.desired_role}
-                onChange={(e) => updateProfile("desired_role", e.target.value)}
-                placeholder="Example: Frontend Developer"
-              />
+              <input className="form-input" style={{ marginTop: "0.6rem" }} value={profile.desired_role}
+                onChange={(e) => setProfile((p) => ({ ...p, desired_role: e.target.value }))}
+                placeholder="e.g. Frontend Developer" />
             </div>
 
+            {/* Experience + Count */}
             <div className="ai-two-col">
               <div className="form-group">
-                <label className="form-label">Experience</label>
-                <select className="form-input" value={profile.experience_level} onChange={(e) => updateProfile("experience_level", e.target.value)}>
+                <label className="form-label">Experience Level</label>
+                <select className="form-input" value={profile.experience_level}
+                  onChange={(e) => setProfile((p) => ({ ...p, experience_level: e.target.value }))}>
                   <option value="junior">Junior / Entry</option>
-                  <option value="mid">Mid</option>
+                  <option value="mid">Mid Level</option>
                   <option value="senior">Senior</option>
                 </select>
               </div>
@@ -454,51 +630,82 @@ const InterviewVideo = () => {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Transcript Language</label>
-              <select className="form-input" value={transcriptLang} onChange={(e) => setTranscriptLang(e.target.value)}>
-                <option value="en-US">English (US)</option>
-                <option value="en-GB">English (UK)</option>
-                <option value="bn-BD">Bangla (Bangladesh)</option>
-                <option value="hi-IN">Hindi (India)</option>
-              </select>
-            </div>
-
+            {/* Skills */}
             <div className="form-group">
               <label className="form-label">Skills <span className="ai-field-hint">comma separated</span></label>
-              <input
-                className="form-input"
-                value={profile.current_skills}
-                onChange={(e) => updateProfile("current_skills", e.target.value)}
-                placeholder="React, JavaScript, SQL"
-              />
+              <input className="form-input" value={profile.current_skills}
+                onChange={(e) => setProfile((p) => ({ ...p, current_skills: e.target.value }))}
+                placeholder="React, JavaScript, Python" />
               <div className="ai-skill-suggestions">
                 {COMMON_SKILLS.map((skill) => (
-                  <button
-                    key={skill}
-                    type="button"
-                    className="ai-skill-suggestion"
-                    onClick={() => updateProfile("current_skills", profile.current_skills ? `${profile.current_skills}, ${skill}` : skill)}
-                  >
+                  <button key={skill} type="button" className="ai-skill-suggestion"
+                    onClick={() => setProfile((p) => ({
+                      ...p, current_skills: p.current_skills ? `${p.current_skills}, ${skill}` : skill,
+                    }))}>
                     {skill}
                   </button>
                 ))}
               </div>
             </div>
 
-            <button className="btn btn--primary btn--full btn--lg" onClick={startSession} disabled={loading}>
-              {loading ? <span className="auth-spinner" /> : "Start Robot Video Viva →"}
+            <button className="btn btn--primary btn--full btn--lg" onClick={startSession} disabled={loading || !profile.desired_role.trim()}>
+              {loading ? <><span className="auth-spinner" /> Generating Questions...</> : "Start Video Interview →"}
             </button>
           </div>
 
-          <div className="video-setup-side">
-            <RobotAvatar />
-            <div className="video-feature-list">
-              <span>🎥 Camera + mic answer</span>
-              <span>🔊 Robot reads questions</span>
-              <span>📝 Voice-to-text transcript</span>
-              <span>🤖 Groq AI evaluation</span>
-              {!sttSupported && <span>⚠ Speech-to-text works best in Chrome/Edge</span>}
+          {/* Right: Info */}
+          <div className="vid-setup-side">
+            <div className="vid-robot-card-wrap">
+              <RobotAvatar />
+              <div className="vid-robot-bubble">
+                <div className="vid-robot-bubble__label">🤖 AI Interviewer</div>
+                <p>I'll ask you questions while tracking your eye contact, face visibility, and head stability in real-time using MediaPipe.</p>
+              </div>
+            </div>
+
+            <div className="vid-feature-grid">
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">👁</span>
+                <div>
+                  <strong>Eye Contact Tracking</strong>
+                  <p>Measures gaze direction toward camera</p>
+                </div>
+              </div>
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">😊</span>
+                <div>
+                  <strong>Face Visibility</strong>
+                  <p>Detects face presence throughout interview</p>
+                </div>
+              </div>
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">📊</span>
+                <div>
+                  <strong>Head Stability</strong>
+                  <p>Tracks nose landmark movement variance</p>
+                </div>
+              </div>
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">🎤</span>
+                <div>
+                  <strong>Speech Analysis</strong>
+                  <p>Counts filler words, measures WPM</p>
+                </div>
+              </div>
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">🤖</span>
+                <div>
+                  <strong>AI Feedback</strong>
+                  <p>Groq generates coaching recommendations</p>
+                </div>
+              </div>
+              <div className="vid-feature-item">
+                <span className="vid-feature-item__icon">🔒</span>
+                <div>
+                  <strong>Private</strong>
+                  <p>Video stays in your browser. Only metrics are sent.</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -506,80 +713,239 @@ const InterviewVideo = () => {
     );
   }
 
-  if (phase === "session") {
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE: PROCESSING
+  // ─────────────────────────────────────────────────────────────────────────
+  if (phase === "processing") {
     return (
-      <div className="page video-session-page">
-        {source === "fallback" && <div className="iv-mock-banner">⚠ AI backend unavailable — fallback questions are being used.</div>}
-        {!sttSupported && <div className="iv-mock-banner">⚠ Your browser does not support live speech-to-text. Type/edit transcript manually before submit.</div>}
+      <div className="page vid-processing-page">
+        <div className="vid-processing-card">
+          <div className="vid-processing-spinner">
+            <svg viewBox="0 0 60 60" width="80" height="80">
+              <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(124,58,237,0.2)" strokeWidth="6" />
+              <circle cx="30" cy="30" r="24" fill="none" stroke="#7c3aed" strokeWidth="6"
+                strokeLinecap="round" strokeDasharray="40 110"
+                style={{ transformOrigin: "center", animation: "vid-spin 1.2s linear infinite" }} />
+            </svg>
+          </div>
+          <h2>Analyzing Your Interview</h2>
+          <p className="vid-processing-step">{processingStep}</p>
+          <div className="vid-processing-steps">
+            <div className="vid-processing-step-item vid-processing-step-item--done">✅ MediaPipe face analysis collected</div>
+            <div className={`vid-processing-step-item ${processingStep.includes("Computing") ? "vid-processing-step-item--active" : "vid-processing-step-item--pending"}`}>
+              📊 Computing confidence scores
+            </div>
+            <div className={`vid-processing-step-item ${processingStep.includes("AI") ? "vid-processing-step-item--active" : "vid-processing-step-item--pending"}`}>
+              🤖 Generating AI coaching feedback
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE: SESSION
+  // ─────────────────────────────────────────────────────────────────────────
+  if (phase === "session") {
+    const currentQ = questions[current];
+    const currentQText = currentQ?.question || "";
+
+    return (
+      <div className="page vid-session-page">
+        {source === "fallback" && (
+          <div className="iv-mock-banner">⚠ AI backend unavailable — using fallback questions.</div>
+        )}
+        {!sttSupported && (
+          <div className="iv-mock-banner">⚠ Live transcript not supported. Type your answer manually.</div>
+        )}
         {error && <div className="alert alert--error">{error}</div>}
 
+        {/* Progress */}
         <div className="iv-progress-bar">
           <div className="iv-progress-bar__fill" style={{ width: `${progress}%` }} />
         </div>
 
-        <div className="video-session-header">
+        {/* Header */}
+        <div className="vid-session-header">
           <div>
             <span className="iv-q-counter">Question {current + 1} / {questions.length}</span>
-            <h2>{profile.desired_role} Viva</h2>
+            <h2>{profile.desired_role} Video Interview</h2>
           </div>
-          <button className="btn btn--outline" onClick={() => speakQuestion(currentQuestionText)} disabled={speaking}>
-            {speaking ? "Robot Speaking..." : "🔊 Repeat Question"}
+          <button className="btn btn--outline btn--sm" onClick={() => speakText(currentQText)} disabled={speaking}>
+            {speaking ? "🔊 Speaking..." : "🔊 Read Question"}
           </button>
         </div>
 
-        <RobotAvatar speaking={speaking} listening={listening || recording} question={currentQuestionText} />
-
-        <div className="video-stage">
-          <div className="video-camera-card">
-            <div className="video-camera-frame">
-              <video ref={videoRef} autoPlay muted playsInline className="video-camera" />
-              {!cameraReady && <div className="video-camera-placeholder">Camera preview will appear here</div>}
-              {recording && <div className="video-recording-pill">● Recording {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, "0")}</div>}
-            </div>
-
-            {recording && (
-              <div className="iv-recorder__timer-wrap">
-                <div className="iv-recorder__timer-bar"><div className="iv-recorder__timer-fill" style={{ width: `${recPct}%` }} /></div>
-                <span className="iv-recorder__time">Max 2:30</span>
+        <div className="vid-session-layout">
+          {/* Left: Camera + Robot */}
+          <div className="vid-session-left">
+            {/* Robot + Question */}
+            <div className="vid-robot-question-card">
+              <div className="vid-robot-question-card__robot">
+                <RobotAvatar speaking={speaking} listening={listening || recording} />
               </div>
-            )}
-
-            <div className="video-controls">
-              {!cameraReady && <button className="btn btn--outline" onClick={startCamera}>Allow Camera + Mic</button>}
-              {!recording && <button className="iv-record-btn iv-record-btn--start" onClick={startRecording}>🔴 Start Answer</button>}
-              {recording && <button className="iv-record-btn iv-record-btn--stop" onClick={stopRecording}>⏹ Stop Answer</button>}
+              <div className="vid-robot-question-card__text">
+                <div className="vid-robot-question-card__label">🤖 Question {current + 1}</div>
+                <p>{currentQText}</p>
+              </div>
             </div>
-            <div className="video-feature-list" style={{ marginTop: "0.75rem" }}>
-              <span>{mediaStatus.video ? "✅ Camera detected" : "⚠ Camera not ready"}</span>
-              <span>{mediaStatus.audio ? "✅ Microphone audio detected" : "⚠ Microphone audio missing"}</span>
-              <span>{sttSupported ? `✅ Live transcript ready (${transcriptLang})` : "⚠ Live transcript unsupported"}</span>
+
+            {/* Camera */}
+            <div className="vid-camera-card">
+              <div className="vid-camera-frame">
+                <video ref={videoRef} autoPlay muted playsInline className="vid-camera" />
+                {!cameraReady && (
+                  <div className="vid-camera-placeholder">
+                    <span>📷</span>
+                    <p>Click "Allow Camera" to begin</p>
+                  </div>
+                )}
+                {recording && (
+                  <div className="vid-rec-pill">
+                    <span className="vid-rec-dot" /> REC {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, "0")}
+                  </div>
+                )}
+                {/* MediaPipe HUD */}
+                {(recording || cameraReady) && <LiveMetricHUD metrics={liveMetrics} />}
+              </div>
+
+              {recording && (
+                <div className="iv-recorder__timer-wrap">
+                  <div className="iv-recorder__timer-bar">
+                    <div className="iv-recorder__timer-fill" style={{ width: `${recPct}%` }} />
+                  </div>
+                  <span className="iv-recorder__time">Max {Math.floor(RECORD_MAX_SECONDS / 60)}:00</span>
+                </div>
+              )}
+
+              {/* Camera Controls */}
+              <div className="vid-controls">
+                {!cameraReady && (
+                  <button className="btn btn--outline" onClick={startCamera}>📷 Allow Camera + Mic</button>
+                )}
+                {cameraReady && !recording && (
+                  <button className="vid-rec-btn vid-rec-btn--start" onClick={startRecording}>
+                    🔴 Start Recording
+                  </button>
+                )}
+                {recording && (
+                  <button className="vid-rec-btn vid-rec-btn--stop" onClick={stopRecording}>
+                    ⏹ Stop Recording
+                  </button>
+                )}
+              </div>
+
+              {/* Status badges */}
+              <div className="vid-status-badges">
+                <span className={`vid-status-badge ${mediaStatus.video ? "ok" : "warn"}`}>
+                  {mediaStatus.video ? "✅ Camera" : "⚠ No Camera"}
+                </span>
+                <span className={`vid-status-badge ${mediaStatus.audio ? "ok" : "warn"}`}>
+                  {mediaStatus.audio ? "✅ Mic" : "⚠ No Mic"}
+                </span>
+                <span className={`vid-status-badge ${mpReady ? "ok" : "warn"}`}>
+                  {mpReady ? "✅ MediaPipe" : "⏳ Loading..."}
+                </span>
+                {sttSupported && (
+                  <span className={`vid-status-badge ${listening ? "ok" : "info"}`}>
+                    {listening ? "🎤 Listening..." : "🎤 STT Ready"}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="video-transcript-card">
-            <div className="iv-transcript-box__label">📝 Live Transcript {listening && <span className="iv-listening-dot" />}</div>
-            <textarea
-              className="form-input form-textarea video-transcript-area"
-              value={answerText}
-              onChange={(e) => q?.id && setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-              placeholder="Speak after pressing Start Answer. Transcript will appear here. You can edit it before submitting."
-            />
-            {previewUrl && (
-              <div className="video-preview-box">
-                <strong>Recorded Preview</strong>
-                <video controls src={previewUrl} className="video-preview" />
+          {/* Right: Transcript + Live Analytics */}
+          <div className="vid-session-right">
+            {/* Live Metrics */}
+            {recording && (
+              <div className="vid-live-analytics">
+                <div className="vid-live-analytics__title">📊 Live Analysis</div>
+                <div className="vid-live-stat-grid">
+                  <div className="vid-live-stat">
+                    <div className="vid-live-stat__val" style={{ color: liveMetrics.eye_contact_score >= 60 ? "#10b981" : "#f59e0b" }}>
+                      {Math.round(liveMetrics.eye_contact_score ?? 0)}%
+                    </div>
+                    <div className="vid-live-stat__label">Eye Contact</div>
+                  </div>
+                  <div className="vid-live-stat">
+                    <div className="vid-live-stat__val" style={{ color: liveMetrics.face_visibility_score >= 70 ? "#10b981" : "#f59e0b" }}>
+                      {Math.round(liveMetrics.face_visibility_score ?? 0)}%
+                    </div>
+                    <div className="vid-live-stat__label">Face Visible</div>
+                  </div>
+                  <div className="vid-live-stat">
+                    <div className="vid-live-stat__val" style={{ color: liveMetrics.head_stability_score >= 60 ? "#10b981" : "#f59e0b" }}>
+                      {Math.round(liveMetrics.head_stability_score ?? 100)}%
+                    </div>
+                    <div className="vid-live-stat__label">Stability</div>
+                  </div>
+                  <div className="vid-live-stat">
+                    <div className="vid-live-stat__val" style={{ color: liveMetrics.faceDetected ? "#10b981" : "#ef4444" }}>
+                      {liveMetrics.faceDetected ? "✓" : "✗"}
+                    </div>
+                    <div className="vid-live-stat__label">Face Detected</div>
+                  </div>
+                </div>
               </div>
             )}
+
+            {/* Transcript */}
+            <div className="vid-transcript-card">
+              <div className="vid-transcript-label">
+                📝 Live Transcript
+                {listening && <span className="iv-listening-dot" />}
+              </div>
+              <textarea
+                className="form-input form-textarea vid-transcript-area"
+                value={answerText}
+                onChange={(e) => {
+                  if (q?.id) setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
+                }}
+                placeholder={
+                  recording
+                    ? "Speaking... transcript will appear here. You can also type or edit."
+                    : "Start recording to capture your answer, or type here."
+                }
+              />
+              <div className="vid-transcript-meta">
+                <span>{answerText.split(/\s+/).filter(Boolean).length} words</span>
+                {countFillerWords(answerText) > 0 && (
+                  <span style={{ color: "#f59e0b" }}>
+                    ⚠ {countFillerWords(answerText)} filler words detected
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Question list */}
+            <div className="vid-q-list">
+              {questions.map((qItem, i) => (
+                <div key={qItem.id} className={`vid-q-pill ${i === current ? "vid-q-pill--active" : ""} ${answers[qItem.id] ? "vid-q-pill--answered" : ""}`}>
+                  Q{i + 1} {answers[qItem.id] ? "✓" : ""}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
+        {/* Navigation */}
         <div className="video-nav-actions">
-          <button className="btn btn--outline" onClick={goPrev} disabled={current === 0 || recording}>← Previous</button>
+          <button className="btn btn--outline" onClick={goPrev} disabled={current === 0 || recording}>
+            ← Previous
+          </button>
           {current < questions.length - 1 ? (
-            <button className="btn btn--primary" onClick={goNext} disabled={recording}>Next Question →</button>
+            <button className="btn btn--primary" onClick={goNext} disabled={recording}>
+              Next Question →
+            </button>
           ) : (
-            <button className="btn btn--primary" onClick={submitInterview} disabled={recording || loading}>
-              {loading ? <span className="auth-spinner" /> : "Submit Viva ✓"}
+            <button
+              className="btn btn--primary"
+              onClick={submitInterview}
+              disabled={recording || loading}
+            >
+              {loading ? <span className="auth-spinner" /> : "Submit & Analyze ✓"}
             </button>
           )}
         </div>
@@ -587,92 +953,206 @@ const InterviewVideo = () => {
     );
   }
 
-  if (phase === "result") {
-    // Backend returns: { evaluation: { score, summary, strengths, gaps, skill_gaps, next_steps }, recommended_courses, source }
-    // Fallback returns: { overall_score, summary, strengths, weaknesses, recommendations }
-    const evaluation = result?.evaluation || {};
-    const score = Math.round(evaluation?.score || result?.overall_score || 0);
-    const summary = evaluation?.summary || result?.summary || "Your video viva answers were evaluated from the generated transcript.";
-    const strengths = evaluation?.strengths || result?.strengths || [];
-    const gaps = evaluation?.gaps || result?.weaknesses || [];
-    const skillGaps = evaluation?.skill_gaps || [];
-    const nextSteps = evaluation?.next_steps || result?.recommendations || [];
-    const courses = result?.recommended_courses || [];
-    const evalSource = result?.source || "";
-    const grade = score >= 80 ? { label: "Excellent! 🎉", color: "#22c55e" }
-               : score >= 60 ? { label: "Good Job! 👍",  color: "#7c3aed" }
-               : score >= 40 ? { label: "Keep Practicing 📚", color: "#f97316" }
-               :               { label: "Needs Work 💪",  color: "#ef4444" };
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHASE: RESULT
+  // ─────────────────────────────────────────────────────────────────────────
+  if (phase === "result" && result) {
+    const s = result.scores;
+    const f = result.feedback;
+    const confidenceGrade = getScoreGrade(s.confidence_score);
+    const overallGrade    = getScoreGrade(s.overall_video_score);
+    const tb = f.transparency_breakdown || {};
+    const hasAnswerContent = (s.answer_content_score ?? 0) > 0;
 
     return (
-      <div className="page video-result-page">
-        <div className="iv-result-header">
-          <div className="iv-result-score-ring">
-            <svg viewBox="0 0 120 120" width="140" height="140">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="#e5e7eb" strokeWidth="8" />
-              <circle cx="60" cy="60" r="52" fill="none" stroke={grade.color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${score * 3.27} 327`} transform="rotate(-90 60 60)" style={{ transition: "stroke-dasharray 1s ease" }} />
-            </svg>
-            <div className="iv-result-score-ring__label">
-              <span className="iv-result-score-ring__pct" style={{ color: grade.color }}>{score}</span>
-              <span className="iv-result-score-ring__raw">/ 100</span>
+      <div className="page vid-result-page">
+        {/* ── Hero: Overall Score ── */}
+        <div className="vid-result-hero">
+          <div className="vid-result-hero__left">
+            <ScoreRing score={s.overall_video_score} color={overallGrade.color} />
+            <div className="vid-result-hero__grade">
+              <h1 style={{ color: overallGrade.color }}>{overallGrade.label}!</h1>
+              <p>Overall Interview Score</p>
+              {result.analysis_source === "hybrid" && (
+                <span className="vid-source-badge vid-source-badge--ai">✅ Groq AI Feedback</span>
+              )}
+              {result.analysis_source === "mediapipe" && (
+                <span className="vid-source-badge vid-source-badge--mp">📊 MediaPipe Analysis</span>
+              )}
             </div>
           </div>
-          <div>
-            <h1 className="iv-result-grade" style={{ color: grade.color }}>{grade.label}</h1>
-            <p className="iv-result-sub">{summary}</p>
-            {evalSource === "fallback" && <p className="iv-mock-note">⚠ Evaluated with fallback logic (Groq AI unavailable)</p>}
-            {evalSource === "groq" && <p className="iv-mock-note" style={{ color: "#22c55e" }}>✅ Evaluated by Groq AI</p>}
-          </div>
-        </div>
+          <div className="vid-result-hero__right">
+            <h2>{result.desired_role} Interview Report</h2>
 
-        {/* Strengths & Gaps */}
-        <div className="ai-result-section">
-          <h2 className="section-title">AI Feedback</h2>
-          <div className="ai-sg-grid">
-            {strengths.length > 0 && (
-              <div className="ai-sg-card ai-sg-card--strength">
-                <h3 className="ai-sg-card__title">✅ Strengths</h3>
-                <ul className="ai-sg-list">{strengths.map((item, i) => <li key={i}>{item}</li>)}</ul>
-              </div>
-            )}
-            {gaps.length > 0 && (
-              <div className="ai-sg-card ai-sg-card--gap">
-                <h3 className="ai-sg-card__title">⚠️ Areas to Improve</h3>
-                <ul className="ai-sg-list">{gaps.map((item, i) => <li key={i}>{item}</li>)}</ul>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Skill Gaps */}
-        {skillGaps.length > 0 && (
-          <div className="ai-result-section">
-            <h2 className="section-title">🎯 Skill Gaps</h2>
-            <div className="ai-skill-gaps">
-              {skillGaps.map((sg, i) => (
-                <div key={i} className="ai-skill-gap-card">
-                  <div className="ai-skill-gap-card__header">
-                    <span className="ai-skill-gap-card__name">{sg.skill}</span>
-                    <div className="ai-priority-dots">
-                      {[1,2,3,4,5].map(n => (
-                        <span key={n} className={`ai-priority-dot${n <= sg.priority ? " ai-priority-dot--filled" : ""}`} />
-                      ))}
-                      <span className="ai-priority-label">Priority</span>
-                    </div>
+            {/* Confidence Score Card */}
+            <div className="vid-confidence-card">
+              <div className="vid-confidence-card__header">
+                <span className="vid-confidence-card__icon">💪</span>
+                <div>
+                  <div className="vid-confidence-card__title">Confidence Score</div>
+                  <div className="vid-confidence-card__val" style={{ color: confidenceGrade.color }}>
+                    {Math.round(s.confidence_score)}/100
                   </div>
-                  <p className="ai-skill-gap-card__reason">{sg.reason}</p>
                 </div>
+              </div>
+              <div className="vid-confidence-card__why">
+                <div className="vid-confidence-card__why-title">
+                  Score Breakdown
+                  {hasAnswerContent && (
+                    <span className="vid-confidence-card__formula-note">incl. answer quality</span>
+                  )}
+                </div>
+                <div className={`vid-confidence-item ${s.eye_contact_score >= 70 ? "ok" : "warn"}`}>
+                  <span>{s.eye_contact_score >= 70 ? "✓" : "✗"} Eye Contact: {Math.round(s.eye_contact_score)}%</span>
+                  <span className="vid-confidence-weight">{hasAnswerContent ? "25%" : "30%"}</span>
+                </div>
+                <div className={`vid-confidence-item ${s.head_stability_score >= 65 ? "ok" : "warn"}`}>
+                  <span>{s.head_stability_score >= 65 ? "✓" : "✗"} Head Stability: {Math.round(s.head_stability_score)}%</span>
+                  <span className="vid-confidence-weight">{hasAnswerContent ? "15%" : "20%"}</span>
+                </div>
+                <div className={`vid-confidence-item ${s.face_visibility_score >= 75 ? "ok" : "warn"}`}>
+                  <span>{s.face_visibility_score >= 75 ? "✓" : "✗"} Face Visibility: {Math.round(s.face_visibility_score)}%</span>
+                  <span className="vid-confidence-weight">{hasAnswerContent ? "10%" : "15%"}</span>
+                </div>
+                <div className={`vid-confidence-item ${s.speech_clarity_score >= 65 ? "ok" : "warn"}`}>
+                  <span>{s.speech_clarity_score >= 65 ? "✓" : "✗"} Speech Clarity: {Math.round(s.speech_clarity_score)}%</span>
+                  <span className="vid-confidence-weight">{hasAnswerContent ? "15%" : "20%"}</span>
+                </div>
+                <div className={`vid-confidence-item ${s.filler_words_count <= 5 ? "ok" : "warn"}`}>
+                  <span>{s.filler_words_count <= 5 ? "✓" : "✗"} {s.filler_words_count} filler word{s.filler_words_count !== 1 ? "s" : ""}</span>
+                  <span className="vid-confidence-weight">{hasAnswerContent ? "10%" : "15%"}</span>
+                </div>
+                {hasAnswerContent && (
+                  <div className={`vid-confidence-item vid-confidence-item--answer ${s.answer_content_score >= 65 ? "ok" : "warn"}`}>
+                    <span>🧠 {s.answer_content_score >= 65 ? "✓" : "✗"} Answer Quality: {Math.round(s.answer_content_score)}%</span>
+                    <span className="vid-confidence-weight vid-confidence-weight--highlight">25%</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Summary Section ── */}
+        {f.summary && (
+          <div className="vid-section vid-summary-section">
+            <h2 className="section-title">📝 Performance & Answer Content Summary</h2>
+            <div className="vid-summary-bubble">
+              <p>{f.summary}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Metric Bars ── */}
+        <div className="vid-section">
+          <h2 className="section-title">👁 Eye Contact & Body Language</h2>
+          <div className="vid-metric-bars">
+            <MetricBar label="Eye Contact"     score={s.eye_contact_score}    icon="👁" />
+            <MetricBar label="Face Visibility" score={s.face_visibility_score} icon="😊" />
+            <MetricBar label="Head Stability"  score={s.head_stability_score}  icon="📐" />
+          </div>
+        </div>
+
+        {/* ── Communication Analysis ── */}
+        <div className="vid-section">
+          <h2 className="section-title">🎤 Communication Analysis</h2>
+          <div className="vid-comm-grid">
+            <div className="vid-comm-card">
+              <div className="vid-comm-card__icon">🗣</div>
+              <div className="vid-comm-card__val" style={{ color: getScoreGrade(s.speech_clarity_score).color }}>
+                {Math.round(s.speech_clarity_score)}
+              </div>
+              <div className="vid-comm-card__label">Speech Clarity</div>
+            </div>
+            <div className="vid-comm-card">
+              <div className="vid-comm-card__icon">💬</div>
+              <div className="vid-comm-card__val" style={{ color: getScoreGrade(s.communication_score).color }}>
+                {Math.round(s.communication_score)}
+              </div>
+              <div className="vid-comm-card__label">Communication</div>
+            </div>
+            <div className="vid-comm-card">
+              <div className="vid-comm-card__icon">⚡</div>
+              <div className="vid-comm-card__val" style={{ color: s.words_per_minute >= 110 && s.words_per_minute <= 160 ? "#10b981" : "#f59e0b" }}>
+                {s.words_per_minute}
+              </div>
+              <div className="vid-comm-card__label">Words / Min</div>
+            </div>
+            <div className="vid-comm-card">
+              <div className="vid-comm-card__icon">🔁</div>
+              <div className="vid-comm-card__val" style={{ color: s.filler_words_count <= 5 ? "#10b981" : s.filler_words_count <= 10 ? "#f59e0b" : "#ef4444" }}>
+                {s.filler_words_count}
+              </div>
+              <div className="vid-comm-card__label">Filler Words</div>
+            </div>
+          </div>
+
+          {/* WPM indicator */}
+          <div className="vid-wpm-indicator">
+            <div className="vid-wpm-indicator__label">Speaking Pace</div>
+            <div className="vid-wpm-indicator__track">
+              <div className="vid-wpm-indicator__zone vid-wpm-indicator__zone--slow">Slow &lt;80</div>
+              <div className="vid-wpm-indicator__zone vid-wpm-indicator__zone--ideal">Ideal 110-160</div>
+              <div className="vid-wpm-indicator__zone vid-wpm-indicator__zone--fast">Fast &gt;180</div>
+            </div>
+            <div
+              className="vid-wpm-indicator__needle"
+              style={{ left: `${Math.min(95, Math.max(5, (s.words_per_minute / 220) * 100))}%` }}
+            >▲</div>
+            <div className="vid-wpm-indicator__val">{s.words_per_minute} WPM</div>
+          </div>
+
+          {/* Communication feedback */}
+          {f.communication_feedback?.length > 0 && (
+            <div className="vid-feedback-list vid-feedback-list--info">
+              {f.communication_feedback.map((item, i) => (
+                <div key={i} className="vid-feedback-item">💬 {item}</div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Body Language Feedback ── */}
+        {f.body_language_feedback?.length > 0 && (
+          <div className="vid-section">
+            <h2 className="section-title">🏃 Body Language Feedback</h2>
+            <div className="vid-feedback-list vid-feedback-list--body">
+              {f.body_language_feedback.map((item, i) => (
+                <div key={i} className="vid-feedback-item">📐 {item}</div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Next Steps */}
-        {nextSteps.length > 0 && (
-          <div className="ai-result-section">
-            <h2 className="section-title">🚀 Next Steps</h2>
+        {/* ── Strengths & Weaknesses ── */}
+        <div className="vid-section">
+          <h2 className="section-title">🏆 Strengths & Areas to Improve</h2>
+          <div className="ai-sg-grid">
+            {f.strengths?.length > 0 && (
+              <div className="ai-sg-card ai-sg-card--strength">
+                <h3 className="ai-sg-card__title">✅ Strengths</h3>
+                <ul className="ai-sg-list">
+                  {f.strengths.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+            {f.weaknesses?.length > 0 && (
+              <div className="ai-sg-card ai-sg-card--gap">
+                <h3 className="ai-sg-card__title">⚠️ Areas to Improve</h3>
+                <ul className="ai-sg-list">
+                  {f.weaknesses.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Improvement Suggestions ── */}
+        {f.improvement_suggestions?.length > 0 && (
+          <div className="vid-section">
+            <h2 className="section-title">🚀 Improvement Suggestions</h2>
             <ol className="ai-next-steps">
-              {nextSteps.map((step, i) => (
+              {f.improvement_suggestions.map((step, i) => (
                 <li key={i} className="ai-next-step">
                   <span className="ai-next-step__num">{i + 1}</span>
                   <span>{step}</span>
@@ -682,62 +1162,89 @@ const InterviewVideo = () => {
           </div>
         )}
 
-        {/* Recommended Courses */}
-        {courses.length > 0 && (
-          <div className="ai-result-section">
-            <h2 className="section-title">📚 Recommended Courses</h2>
-            <div className="ai-courses-grid">
-              {courses.map((course, i) => (
-                <div key={i} className="ai-course-card">
-                  <div className="ai-course-card__header">
-                    <div>
-                      <p className="ai-course-card__title">{course.title}</p>
-                      <p className="ai-course-card__provider">{course.provider}</p>
-                    </div>
-                    {course.difficulty && (
-                      <span className={`iv-tag iv-tag--${course.difficulty === "beginner" ? "easy" : course.difficulty === "intermediate" ? "medium" : "hard"}`}>
-                        {course.difficulty}
-                      </span>
-                    )}
+        {/* ── Transparency Score Breakdown ── */}
+        <div className="vid-section">
+          <h2 className="section-title">🔍 Transparency Score Breakdown</h2>
+          <p className="vid-section__sub">How each dimension contributed to your overall performance</p>
+          <div className="vid-transparency-grid">
+            {[
+              { key: "eye_contact",    label: "Eye Contact",    icon: "👁",  val: tb.eye_contact    ?? s.eye_contact_score },
+              { key: "communication",  label: "Communication",  icon: "🎤",  val: tb.communication  ?? s.communication_score },
+              { key: "posture",        label: "Head Stability", icon: "📐",  val: tb.posture        ?? s.head_stability_score },
+              { key: "confidence",     label: "Confidence",     icon: "💪",  val: tb.confidence     ?? s.confidence_score },
+            ].map(({ key, label, icon, val }) => {
+              const g = getScoreGrade(val);
+              return (
+                <div key={key} className="vid-transparency-card">
+                  <div className="vid-transparency-card__icon">{icon}</div>
+                  <div className="vid-transparency-card__label">{label}</div>
+                  <div className="vid-transparency-card__score" style={{ color: g.color }}>
+                    {Math.round(val ?? 0)}
                   </div>
-                  <p className="ai-course-card__desc">{course.description}</p>
-                  <div className="ai-course-card__footer">
-                    {course.estimated_duration_hours && (
-                      <span className="ai-course-card__duration">⏱ ~{course.estimated_duration_hours}h</span>
-                    )}
-                    {course.relevance && (
-                      <span className="ai-course-card__relevance">🎯 {course.relevance}</span>
-                    )}
-                    {course.url && (
-                      <a href={course.url} target="_blank" rel="noreferrer" className="btn btn--sm btn--outline" style={{ marginLeft: "auto" }}>
-                        View Course →
-                      </a>
-                    )}
+                  <div className="vid-transparency-card__grade" style={{ color: g.color }}>{g.label}</div>
+                  <div className="vid-transparency-card__bar-track">
+                    <div className="vid-transparency-card__bar-fill"
+                      style={{ width: `${Math.min(100, val ?? 0)}%`, background: g.color }} />
                   </div>
                 </div>
-              ))}
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Answer Content Evaluation ── */}
+        {f.answer_evaluations && f.answer_evaluations.length > 0 && (
+          <div className="vid-section">
+            <h2 className="section-title">💡 Answer Content Evaluation</h2>
+            <div className="vid-eval-list">
+              {f.answer_evaluations.map((item, idx) => {
+                const evalGrade = getScoreGrade(item.score);
+                return (
+                  <div key={idx} className="vid-eval-item">
+                    <div className="vid-eval-item__header">
+                      <span className="vid-eval-item__q-num">Question {idx + 1}</span>
+                      <span className="vid-eval-item__score" style={{ color: evalGrade.color, background: evalGrade.bg }}>
+                        Score: {item.score}/100 ({evalGrade.label})
+                      </span>
+                    </div>
+                    <div className="vid-eval-item__question">
+                      <strong>Q:</strong> {item.question}
+                    </div>
+                    <div className="vid-eval-item__answer">
+                      <strong>Your Answer:</strong>
+                      <p>{item.answer || "(No transcript captured)"}</p>
+                    </div>
+                    {item.feedback && (
+                      <div className="vid-eval-item__feedback">
+                        <strong>AI Coaching Feedback:</strong>
+                        <p>{item.feedback}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Transcript & Video Review */}
-        <div className="iv-review">
-          <h2 className="section-title">Transcript & Video Review</h2>
-          <div className="iv-review-list">
-            {questions.map((question, i) => (
-              <div key={question.id} className="iv-voice-review-card">
-                <div className="iv-voice-review-card__header"><span className="iv-review-item__num">Q{i + 1}</span></div>
-                <p className="iv-review-item__q">{question.question || question.question_text}</p>
-                <div className="iv-voice-review-card__answer"><strong>Your transcript:</strong> <span>{answers[question.id] || "No transcript captured."}</span></div>
-                {videoAnswers[question.id]?.url && <video controls src={videoAnswers[question.id].url} className="video-review-player" />}
-              </div>
-            ))}
+        {/* ── Transcript Review ── */}
+        {result.transcript && (
+          <div className="vid-section">
+            <h2 className="section-title">📝 Transcript Review</h2>
+            <div className="vid-transcript-review">
+              <pre className="vid-transcript-pre">{result.transcript}</pre>
+            </div>
           </div>
-        </div>
+        )}
 
+        {/* ── Actions ── */}
         <div className="iv-result-actions">
-          <button className="btn btn--outline" onClick={() => { setPhase("setup"); setResult(null); }}>Try Again</button>
-          <button className="btn btn--primary" onClick={() => navigate("/interview")}>← Back to Hub</button>
+          <button className="btn btn--outline" onClick={() => { setPhase("setup"); setResult(null); resetMetrics(); }}>
+            🔄 Try Again
+          </button>
+          <button className="btn btn--primary" onClick={() => navigate("/interview")}>
+            ← Back to Interview Hub
+          </button>
         </div>
       </div>
     );

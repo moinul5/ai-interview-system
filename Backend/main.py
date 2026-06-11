@@ -19,6 +19,7 @@ from app.admin_routes.jobs import router as admin_jobs_router
 from app.scheduling_routes.candidate import router as candidate_router
 from app.scheduling_routes.interviewer import router as interviewer_router
 from app.notification_routes.notifications import router as notification_router
+from app.video_interview_routes.video_interview import router as video_interview_router
 
 load_dotenv()
 
@@ -51,6 +52,7 @@ app.include_router(admin_jobs_router)
 app.include_router(candidate_router)
 app.include_router(interviewer_router)
 app.include_router(notification_router)
+app.include_router(video_interview_router)
 
 
 @app.get("/")

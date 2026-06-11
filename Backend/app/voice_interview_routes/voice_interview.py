@@ -40,7 +40,7 @@ except Exception:
 
 
 def _groq_client() -> Any | None:
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key.startswith("your_") or Groq is None:
         return None
     return Groq(api_key=api_key)
@@ -626,6 +626,86 @@ def get_interview_history(
                     })
         except Exception as e:
             print(f"[AI HISTORY] Failed to load AI history: {e}")
+
+    # ── Video Interview History ──
+    if not interview_type or interview_type == "video":
+        try:
+            with engine.connect() as conn:
+                params_v: dict = {}
+                user_filter_v = ""
+                if user_id:
+                    user_filter_v = "WHERE v.user_id = :user_id"
+                    params_v["user_id"] = int(user_id)
+
+                rows = conn.execute(
+                    text(f"""
+                        SELECT v.analysis_id, v.session_id, v.user_id,
+                               v.eye_contact_score, v.face_visibility_score, v.head_stability_score,
+                               v.speech_clarity_score, v.communication_score,
+                               v.filler_words_count, v.words_per_minute,
+                               v.confidence_score, v.overall_video_score,
+                               v.transparency_score, v.analysis_source,
+                               v.summary, v.strengths_json, v.weaknesses_json,
+                               v.improvement_suggestions_json, v.answer_evaluations_json,
+                               v.created_at,
+                               s.desired_role, s.experience_level, s.question_count
+                        FROM video_interview_analysis v
+                        LEFT JOIN ai_interview_sessions s ON s.session_id = v.session_id
+                        {user_filter_v}
+                        ORDER BY v.created_at DESC
+                        LIMIT 50
+                    """),
+                    params_v,
+                ).mappings().all()
+
+                import json as _json
+                for row in rows:
+                    def _pj(val):
+                        try:
+                            return _json.loads(val or "[]")
+                        except Exception:
+                            return []
+
+                    score = float(row["overall_video_score"]) if row["overall_video_score"] is not None else None
+                    confidence = float(row["confidence_score"]) if row["confidence_score"] is not None else None
+
+                    if score is not None and score >= 80:
+                        badge = "Excellent"
+                    elif score is not None and score >= 65:
+                        badge = "Good"
+                    elif score is not None and score >= 50:
+                        badge = "Fair"
+                    elif score is not None:
+                        badge = "Needs Work"
+                    else:
+                        badge = "Pending"
+
+                    history.append({
+                        "type": "video",
+                        "id": row["analysis_id"],
+                        "session_id": row["session_id"],
+                        "desired_role": row["desired_role"] or "Video Interview",
+                        "experience_level": row["experience_level"] or "",
+                        "question_count": row["question_count"],
+                        "score": score,
+                        "confidence_score": confidence,
+                        "eye_contact_score": float(row["eye_contact_score"]) if row["eye_contact_score"] is not None else None,
+                        "face_visibility_score": float(row["face_visibility_score"]) if row["face_visibility_score"] is not None else None,
+                        "head_stability_score": float(row["head_stability_score"]) if row["head_stability_score"] is not None else None,
+                        "speech_clarity_score": float(row["speech_clarity_score"]) if row["speech_clarity_score"] is not None else None,
+                        "filler_words_count": int(row["filler_words_count"]) if row["filler_words_count"] is not None else 0,
+                        "words_per_minute": int(row["words_per_minute"]) if row["words_per_minute"] is not None else 0,
+                        "summary": row["summary"] or "",
+                        "strengths": _pj(row["strengths_json"]),
+                        "weaknesses": _pj(row["weaknesses_json"]),
+                        "improvement_suggestions": _pj(row["improvement_suggestions_json"]),
+                        "answer_evaluations": _pj(row["answer_evaluations_json"]),
+                        "analysis_source": row["analysis_source"] or "mediapipe",
+                        "badge": badge,
+                        "submitted_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    })
+        except Exception as e:
+            print(f"[VIDEO HISTORY] Failed to load video history: {e}")
 
     # Sort all by date
     history.sort(key=lambda x: x.get("submitted_at") or "", reverse=True)
