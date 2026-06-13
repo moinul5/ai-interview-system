@@ -502,6 +502,13 @@ const InterviewVideo = () => {
         speechClarity * 0.15 + fillerScore * 0.10 + answerContentScore * 0.25
       );
 
+      let finalOverall = Math.round(confidence * 0.6 + speechClarity * 0.4);
+      if (answeredQs.length === 0) {
+        finalOverall = 0;
+      } else if (answerContentScore < 35) {
+        finalOverall = Math.min(finalOverall, 39);
+      }
+
       setResult({
         session_id: null,
         scores: {
@@ -513,7 +520,7 @@ const InterviewVideo = () => {
           filler_words_count: fillerCount,
           words_per_minute: wpm,
           confidence_score: confidence,
-          overall_video_score: Math.round(confidence * 0.6 + speechClarity * 0.4),
+          overall_video_score: finalOverall,
           transparency_score: confidence,
           answer_content_score: answerContentScore,
         },
@@ -524,14 +531,17 @@ const InterviewVideo = () => {
           body_language_feedback: [`Eye contact: ${eyeContact}%`, `Head stability: ${headStability}%`],
           improvement_suggestions: ["Practice maintaining eye contact with the camera.", "Use pauses instead of filler words."],
           transparency_breakdown: { eye_contact: eyeContact, communication: speechClarity, posture: headStability, confidence },
-          summary: "Local analysis completed. The candidate completed the video recording session and responded to the target questions.",
+          summary: answeredQs.length === 0 
+            ? "No valid spoken responses were captured during this video session. Please ensure your microphone is active and you speak clearly."
+            : "Local analysis completed. The candidate completed the video recording session and responded to the target questions.",
           answer_evaluations: questions.map((qItem) => {
-            const a = answers[qItem.id] || "";
+            const a = (answers[qItem.id] || "").trim();
+            const isValid = a.length > 20;
             return {
               question: qItem.question,
               answer: a || "(No answer recorded)",
-              score: a ? 75 : 0,
-              feedback: a ? "Good response captured." : "No response provided.",
+              score: isValid ? 75 : 0,
+              feedback: isValid ? "Good response captured." : "No valid response provided (too short or empty).",
             };
           }),
         },

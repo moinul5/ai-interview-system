@@ -93,7 +93,7 @@ const Home = () => {
 
       {/* ── Features Section ── */}
       <section className="features">
-        <h2 className="features__title">Why InterviewAI?</h2>
+        <h2 className="features__title">Why InterviaAI?</h2>
         <div className="features__grid">
           {[
             {

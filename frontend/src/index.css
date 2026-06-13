@@ -218,16 +218,14 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   justify-content: space-between;
   height: var(--navbar-height);
   padding: 0 var(--space-8);
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  background: #0F172A;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 .navbar--scrolled {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 2px 20px rgba(79, 70, 229, 0.08);
-  border-bottom-color: rgba(79, 70, 229, 0.12);
+  background: #0F172A;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Brand */
@@ -258,7 +256,7 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   font-weight: 800;
   color: var(--color-primary);
   letter-spacing: -0.03em;
-  background: linear-gradient(135deg, var(--color-primary), #818cf8);
+  background: linear-gradient(135deg, #a5b4fc, #818cf8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -277,19 +275,19 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   padding: 0.4rem 0.75rem;
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: var(--color-text-muted);
+  color: #94a3b8;
   border-radius: var(--radius-md);
   transition: color 0.15s, background 0.15s;
   line-height: 1;
 }
 .navbar__link:hover {
-  color: var(--color-primary);
-  background: rgba(79, 70, 229, 0.07);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
 }
 .navbar__link--active {
-  color: var(--color-primary);
+  color: #ffffff;
   font-weight: 600;
-  background: rgba(79, 70, 229, 0.09);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Avatar pill */
@@ -346,8 +344,8 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
 }
 .navbar__btn--logout:hover {
-  background: #fee2e2;
-  border-color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
   transform: translateY(-1px);
 }
 .navbar__btn--logout:active { transform: scale(0.97); }
@@ -3946,17 +3944,17 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
-  color: var(--color-text);
+  color: #94a3b8;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 .notification-bell__trigger:hover {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .notification-bell__badge {

@@ -201,28 +201,55 @@ Do not include markdown.
         return None
 
 
+def _is_gibberish_or_empty(answer: str) -> bool:
+    if not answer:
+        return True
+    val = answer.strip().lower()
+    if len(val) < 8:
+        return True
+    if val in ["i don't know", "i do not know", "idk", "wrong answer", "no idea", "none", "n/a", "na", "wrong", "skip", "pass"]:
+        return True
+    # check if it's just repeated characters without spaces (e.g. asdfasdfasdfasdf)
+    if " " not in val and len(val) > 15:
+        return True
+    return False
+
+
 def _fallback_evaluation(profile: CandidateProfile, questions: list[dict[str, Any]], answers: list[AnswerItem]) -> dict[str, Any]:
     answer_map = {a.question_id: a.answer.strip() for a in answers}
-    lengths = [len(answer_map.get(q["id"], "")) for q in questions]
-    answered = sum(1 for length in lengths if length > 0)
-    avg_len = sum(lengths) / max(len(lengths), 1)
-    score = min(95, int((answered / max(len(questions), 1)) * 45 + min(avg_len / 350, 1) * 35 + 10))
+    valid_lengths = []
+    answered_count = 0
+    for q in questions:
+        ans = answer_map.get(q["id"], "")
+        if not _is_gibberish_or_empty(ans):
+            valid_lengths.append(len(ans))
+            answered_count += 1
+        else:
+            valid_lengths.append(0)
+
+    avg_len = sum(valid_lengths) / max(answered_count, 1) if answered_count > 0 else 0
+    
+    # Calculate score based on valid answers: max score is 95, but if 0 valid answers, score is 0
+    if answered_count == 0:
+        score = 0
+    else:
+        score = min(95, int((answered_count / max(len(questions), 1)) * (45 + min(avg_len / 350, 1) * 35) + 10))
 
     target_skills = profile.target_skills or profile.current_skills or ["Technical fundamentals", "Communication"]
     gaps = []
-    if answered < len(questions):
-        gaps.append("Some questions were left unanswered; complete every answer for a stronger interview result.")
-    if avg_len < 120:
+    if answered_count < len(questions):
+        gaps.append("Some questions were left unanswered or received invalid/empty responses.")
+    if answered_count > 0 and avg_len < 120:
         gaps.append("Answers are too short. Add context, action, result, and specific examples.")
     gaps.append("Practice structuring answers with the STAR method and measurable outcomes.")
 
     return {
         "score": score,
-        "summary": f"You answered {answered} of {len(questions)} questions for the {profile.desired_role} role. The evaluation is based on completeness, specificity, and interview structure.",
+        "summary": f"You answered {answered_count} of {len(questions)} valid questions for the {profile.desired_role} role. The evaluation is based on completeness, specificity, and interview structure.",
         "strengths": [
             "You completed an interview flow tailored to your target role.",
             "Your selected skills and goals give a clear direction for practice.",
-        ],
+        ] if answered_count > 0 else ["You started an interview session but did not provide any valid answers."],
         "gaps": gaps[:4],
         "skill_gaps": [
             {"skill": skill, "priority": min(5, i + 3), "reason": f"Keep practicing {skill} with project-based examples and mock interview answers."}
@@ -272,6 +299,12 @@ Evaluate this mock interview for the profile below.
 Interview Q&A:
 {qa_text}
 
+CRITICAL GRADING CRITERIA:
+1. Grade strictly based on the accuracy, depth, and relevance of the answers. Do not award high scores out of politeness.
+2. If an answer is technically incorrect, irrelevant, empty, gibberish, or says "I don't know" / "idk" / "wrong answer", that answer must be treated as a failure and score penalty applied.
+3. If all or most answers are incorrect or gibberish, the overall score MUST be very low (between 0 and 35).
+4. An overall score above 70 should only be given for answers that demonstrate clear industry-standard knowledge and structured explanation.
+
 Return only valid JSON with this shape:
 {{
   "score": number from 0 to 100,
@@ -287,10 +320,10 @@ Return only valid JSON with this shape:
         completion = client.chat.completions.create(
             model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
             messages=[
-                {"role": "system", "content": "You are a constructive interview evaluator. Return strict JSON only."},
+                {"role": "system", "content": "You are a strict, professional technical interviewer and evaluator. Grade responses strictly based on technical accuracy and depth. Return strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.4,
+            temperature=0.3,
             max_tokens=1800,
         )
         content = completion.choices[0].message.content or "{}"
@@ -473,10 +506,36 @@ def submit_interview(session_id: str, payload: SubmitInterviewRequest) -> dict[s
 
     profile = CandidateProfile(**session["profile"])
     questions = session["questions"]
-    evaluation = _evaluate_with_groq(profile, questions, payload.answers)
-    source = "groq" if evaluation else "fallback"
-    if evaluation is None:
-        evaluation = _fallback_evaluation(profile, questions, payload.answers)
+
+    # Pre-check for empty/gibberish answers. If 0 valid answers, do not call Groq.
+    answer_map = {a.question_id: a.answer.strip() for a in payload.answers}
+    valid_answers = [
+        ans for q in questions
+        if (ans := answer_map.get(q["id"], "")) and not _is_gibberish_or_empty(ans)
+    ]
+
+    if len(valid_answers) == 0:
+        target_skills = profile.target_skills or profile.current_skills or ["Technical fundamentals"]
+        evaluation = {
+            "score": 0,
+            "summary": "The candidate submitted the interview without providing any valid or relevant answers.",
+            "strengths": ["None (no valid answers provided)."],
+            "gaps": ["All questions were left unanswered, skipped, or answered with invalid/empty responses."],
+            "skill_gaps": [
+                {"skill": skill, "priority": 5, "reason": f"Please practice {skill} by providing complete answers."}
+                for skill in target_skills[:4]
+            ],
+            "next_steps": [
+                "Restart the interview session.",
+                "Provide detailed, structured responses to each question.",
+            ],
+        }
+        source = "local_empty"
+    else:
+        evaluation = _evaluate_with_groq(profile, questions, payload.answers)
+        source = "groq" if evaluation else "fallback"
+        if evaluation is None:
+            evaluation = _fallback_evaluation(profile, questions, payload.answers)
 
     courses = _courses_for(profile, evaluation.get("skill_gaps", []))
     try:

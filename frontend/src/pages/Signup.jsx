@@ -100,7 +100,7 @@ const Signup = () => {
         <div className="auth-panel__content">
           <div className="auth-panel__logo">
             <span className="auth-panel__logo-icon">🤖</span>
-            <span className="auth-panel__logo-text">InterviewAI</span>
+            <span className="auth-panel__logo-text">InterviaAI</span>
           </div>
           <h2 className="auth-panel__headline">
             Start your journey<br />to career success
@@ -123,7 +123,7 @@ const Signup = () => {
         <div className="auth-form-wrap">
           {/* Mobile logo */}
           <div className="auth-mobile-logo">
-            <span>🤖</span> InterviewAI
+            <span>🤖</span> InterviaAI
           </div>
 
           <h1 className="auth-form-wrap__title">Create your account</h1>

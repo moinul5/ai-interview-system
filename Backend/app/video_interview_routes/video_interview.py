@@ -132,7 +132,7 @@ def _compute_confidence_score(
     face_visibility: float,
     speech_clarity: float,
     filler_score: float,
-    answer_content_score: float = 0.0,
+    answer_content_score: float | None = None,
 ) -> float:
     """
     Weighted confidence score:
@@ -143,10 +143,10 @@ def _compute_confidence_score(
       Filler Score         10%
       Answer Content Score 25%  ← AI-evaluated answer quality
     
-    When answer_content_score is 0 (no AI evaluation yet), weights fall
+    When answer_content_score is None (no AI evaluation yet), weights fall
     back to the original non-content distribution (normalized).
     """
-    if answer_content_score > 0:
+    if answer_content_score is not None:
         score = (
             eye_contact           * 0.25 +
             head_stability        * 0.15 +
@@ -210,6 +210,44 @@ def _generate_ai_feedback(
     # We do this BEFORE calling the AI so the AI cannot invent answers.
     actual_qa = _parse_qa_from_transcript(transcript, questions)
 
+    # Check if there are no valid answers at all
+    valid_answers_count = sum(
+        1 for item in actual_qa
+        if item["answer"] != "(No answer recorded)" and not _is_gibberish_or_empty(item["answer"])
+    )
+
+    if valid_answers_count == 0:
+        return {
+            "summary": "No spoken responses were captured during this video interview session. Please ensure your microphone is enabled and you speak clearly.",
+            "strengths": ["None (no valid answers provided)."],
+            "weaknesses": ["All questions were left unanswered, skipped, or answered with invalid/empty responses."],
+            "communication_feedback": ["Estimated WPM: 0. Filler words: 0. No verbal communication was recorded."],
+            "body_language_feedback": [
+                f"Eye contact score: {eye_contact:.0f}/100.",
+                f"Posture/head stability score: {head_stability:.0f}/100."
+            ],
+            "improvement_suggestions": [
+                "Position yourself clearly in front of the camera.",
+                "Speak clearly into the microphone to record your answers.",
+            ],
+            "overall_video_score": 0,
+            "transparency_breakdown": {
+                "eye_contact": round(eye_contact),
+                "communication": 0,
+                "posture": round(head_stability),
+                "confidence": 0,
+            },
+            "answer_evaluations": [
+                {
+                    "question": item["question"],
+                    "answer": "(No answer recorded)",
+                    "score": 0,
+                    "feedback": "No answer was provided for this question."
+                }
+                for item in actual_qa
+            ]
+        }
+
     # Build the explicit Q&A block for the prompt (clearly marks unanswered questions)
     qa_block_lines = []
     for i, item in enumerate(actual_qa):
@@ -227,6 +265,8 @@ IMPORTANT RULES YOU MUST FOLLOW:
 1. You MUST evaluate ONLY what the candidate actually said. Do NOT invent, assume, or paraphrase any answer content.
 2. If a question shows "<<NO ANSWER RECORDED>>", the candidate gave NO answer. Set score to 0 and state they did not answer.
 3. Use the EXACT answer text provided. Do not add, expand, or improve upon what was said.
+4. Compare answers to technical questions strictly against industry standards. If the answers are incorrect, gibberish, irrelevant, or just empty words, you MUST grade them as 0.
+5. If most or all answers are incorrect or gibberish, the overall_video_score must be low (below 40), regardless of delivery metrics.
 
 --- ACTUAL CANDIDATE Q&A (from speech transcript) ---
 {qa_block}
@@ -241,7 +281,7 @@ IMPORTANT RULES YOU MUST FOLLOW:
 
 Based ONLY on the actual answers above and the delivery metrics, generate a coaching report in this exact JSON format:
 {{
-  "summary": "A comprehensive but honest summary of the interview. Mention if the candidate failed to answer any questions.",
+  "summary": "A comprehensive but honest summary of the interview. Mention if the candidate failed to answer any questions or gave incorrect/gibberish answers.",
   "strengths": ["...", "...", "..."],
   "weaknesses": ["...", "...", "..."],
   "communication_feedback": ["...", "..."],
@@ -258,13 +298,13 @@ Based ONLY on the actual answers above and the delivery metrics, generate a coac
     {{
       "question": "The exact question text",
       "answer": "The EXACT text the candidate said (or empty string if nothing was said)",
-      "score": <0 if no answer, 1-100 based on actual answer quality>,
+      "score": <0 if no answer/incorrect, 1-100 based on actual answer quality>,
       "feedback": "Specific feedback. If no answer was given, say exactly: 'No answer was provided for this question.'"
     }}
   ]
 }}
 
-Return strict JSON only. Never hallucinate or fabricate answer content.
+Return strict JSON only. Never hallucinate or fabricate answer content. Grade strictly and realistically.
 """.strip()
 
     try:
@@ -273,7 +313,7 @@ Return strict JSON only. Never hallucinate or fabricate answer content.
         completion = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a strict interview evaluator. You NEVER invent or fabricate answers. You evaluate ONLY what the candidate actually said. Return strict JSON only."},
+                {"role": "system", "content": "You are a strict technical interview evaluator. You NEVER invent or fabricate answers. You evaluate ONLY what the candidate actually said, grading strictly based on correctness and content quality. Return strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
@@ -343,6 +383,20 @@ Return strict JSON only. Never hallucinate or fabricate answer content.
 
 
 
+def _is_gibberish_or_empty(answer: str) -> bool:
+    if not answer:
+        return True
+    val = answer.strip().lower()
+    if len(val) < 8:
+        return True
+    if val in ["i don't know", "i do not know", "idk", "wrong answer", "no idea", "none", "n/a", "na", "wrong", "skip", "pass"]:
+        return True
+    # check if it's just repeated characters without spaces (e.g. asdfasdfasdfasdf)
+    if " " not in val and len(val) > 15:
+        return True
+    return False
+
+
 def _parse_qa_from_transcript(transcript: str, questions: list) -> list:
     """
     Parse actual answers from the transcript.
@@ -396,19 +450,19 @@ def _parse_qa_from_transcript(transcript: str, questions: list) -> list:
                 if ans_match:
                     ans = ans_match.group(1).strip()
 
-        # Determine score and feedback based on actual answer length
-        if ans and len(ans) > 100:
+        # Determine score and feedback based on actual answer length and validity
+        if not ans or _is_gibberish_or_empty(ans):
+            score = 0
+            feedback = "No valid answer was captured or the response was too short/irrelevant. Please address the question directly."
+        elif len(ans) > 100:
             score = 70   # base score; AI will refine this
             feedback = "Answer captured. AI will evaluate content quality."
-        elif ans and len(ans) > 20:
+        elif len(ans) > 20:
             score = 50
             feedback = "Answer is brief. AI will evaluate content quality."
-        elif ans:
+        else:
             score = 30
             feedback = "Answer is very short. AI will evaluate content quality."
-        else:
-            score = 0
-            feedback = "No speech transcript was captured for this question. Make sure your microphone is allowed and active."
 
         evals.append({
             "question": q_text,
@@ -435,6 +489,41 @@ def _fallback_ai_feedback(
     questions: list = None,
 ) -> dict:
     """Rule-based fallback feedback when Groq is unavailable."""
+    answer_evals = _parse_qa_from_transcript(transcript, questions or [])
+    valid_count = sum(
+        1 for e in answer_evals
+        if e["answer"] != "(No answer recorded)" and not _is_gibberish_or_empty(e["answer"])
+    )
+
+    if valid_count == 0:
+        return {
+            "summary": "Local analysis: No valid spoken responses were captured during this interview.",
+            "strengths": [],
+            "weaknesses": ["No answers were recorded. Please ensure your microphone is allowed and active."],
+            "communication_feedback": ["No speech recorded."],
+            "body_language_feedback": [
+                f"Eye contact score: {eye_contact:.0f}/100.",
+                f"Head stability score: {head_stability:.0f}/100."
+            ],
+            "improvement_suggestions": ["Ensure your camera and microphone are working correctly and speak your answers clearly."],
+            "overall_video_score": 0,
+            "transparency_breakdown": {
+                "eye_contact": round(eye_contact),
+                "communication": 0,
+                "posture": round(head_stability),
+                "confidence": 0,
+            },
+            "answer_evaluations": [
+                {
+                    "question": e["question"],
+                    "answer": "(No answer recorded)",
+                    "score": 0,
+                    "feedback": "No answer was provided."
+                }
+                for e in answer_evals
+            ]
+        }
+
     strengths = []
     weaknesses = []
     suggestions = []
@@ -706,26 +795,36 @@ def upload_analysis(payload: UploadAnalysisRequest, request: Request):
 
     # Compute speech metrics from transcript
     transcript = payload.transcript.strip()
-    filler_data = _count_filler_words(transcript)
-    filler_count = filler_data["total"]
-    wpm = _calculate_wpm(transcript, payload.duration_seconds)
+    if not transcript or _is_gibberish_or_empty(transcript):
+        filler_count = 0
+        wpm = 0
+        speech_clarity = 0.0
+        filler_score = 0.0
+        communication = 0.0
+        confidence = 0.0
+        overall_score = 0.0
+        transparency = 0.0
+    else:
+        filler_data = _count_filler_words(transcript)
+        filler_count = filler_data["total"]
+        wpm = _calculate_wpm(transcript, payload.duration_seconds)
 
-    # Compute derived scores
-    speech_clarity  = _speech_clarity_score(filler_count, wpm)
-    filler_score    = _filler_word_score(filler_count)
-    communication   = _compute_communication_score(speech_clarity, filler_score, wpm)
-    confidence      = _compute_confidence_score(
-        payload.eye_contact_score,
-        payload.head_stability_score,
-        payload.face_visibility_score,
-        speech_clarity,
-        filler_score,
-    )
-    overall_score   = round((confidence * 0.6 + speech_clarity * 0.4), 2)
-    transparency    = _compute_transparency_score(
-        payload.eye_contact_score, communication,
-        payload.head_stability_score, confidence,
-    )
+        # Compute derived scores
+        speech_clarity  = _speech_clarity_score(filler_count, wpm)
+        filler_score    = _filler_word_score(filler_count)
+        communication   = _compute_communication_score(speech_clarity, filler_score, wpm)
+        confidence      = _compute_confidence_score(
+            payload.eye_contact_score,
+            payload.head_stability_score,
+            payload.face_visibility_score,
+            speech_clarity,
+            filler_score,
+        )
+        overall_score   = round((confidence * 0.6 + speech_clarity * 0.4), 2)
+        transparency    = _compute_transparency_score(
+            payload.eye_contact_score, communication,
+            payload.head_stability_score, confidence,
+        )
 
     # Delete any previous analysis for this session (allow re-submission)
     try:
@@ -837,6 +936,13 @@ def generate_feedback(payload: GenerateFeedbackRequest):
     # ── Recompute confidence_score including answer content quality ────────────
     answer_evaluations = ai_result.get("answer_evaluations", [])
     answer_content_score = _compute_answer_content_score(answer_evaluations)
+    
+    # Count how many answers are actually valid (not skipped or gibberish)
+    valid_answers_count = sum(
+        1 for e in answer_evaluations
+        if e.get("answer") and e.get("answer") != "(No answer recorded)" and not _is_gibberish_or_empty(e.get("answer"))
+    )
+
     updated_confidence = _compute_confidence_score(
         eye_contact=float(row["eye_contact_score"]),
         head_stability=float(row["head_stability_score"]),
@@ -846,9 +952,26 @@ def generate_feedback(payload: GenerateFeedbackRequest):
         answer_content_score=answer_content_score,
     )
     updated_overall = round((updated_confidence * 0.6 + float(row["speech_clarity_score"]) * 0.4), 2)
-    # Let the AI overall_video_score override if it's reasonable, otherwise use updated_overall
+    
     ai_overall = ai_result.get("overall_video_score", None)
-    final_overall = ai_overall if ai_overall and abs(ai_overall - updated_overall) < 30 else updated_overall
+    
+    if ai_overall is not None:
+        # Trust the AI score. However, if there are no valid answers, overall score must be 0.
+        if valid_answers_count == 0:
+            final_overall = 0.0
+        elif answer_content_score < 35:
+            # Enforce that poor content limits the maximum score to below 40
+            final_overall = min(float(ai_overall), 39.0)
+        else:
+            final_overall = float(ai_overall)
+    else:
+        # Fallback when AI score is missing
+        if valid_answers_count == 0:
+            final_overall = 0.0
+        elif answer_content_score < 35:
+            final_overall = min(updated_overall, 39.0)
+        else:
+            final_overall = updated_overall
 
     logger.info(
         "[VideoInterview] Scores updated — answer_content=%.1f, confidence=%.1f→%.1f, overall=%.1f",

@@ -163,13 +163,22 @@ const InterviewVoice = () => {
       feedback = res.data; // { answer_id, score, feedback_text, confidence_level }
     } catch {
       // Mock feedback when backend not ready
+      const isGibberishOrEmpty = (str) => {
+        if (!str) return true;
+        const val = str.trim().toLowerCase();
+        if (val.length < 15) return true;
+        if (["i don't know", "i do not know", "idk", "wrong answer", "no idea", "none", "skip", "pass"].includes(val)) return true;
+        return false;
+      };
+      const isValid = !isGibberishOrEmpty(transcript);
+
       feedback = {
         answer_id: null,
-        score: transcript.length > 20 ? (Math.random() * 30 + 60).toFixed(1) : (Math.random() * 30 + 20).toFixed(1),
-        feedback_text: transcript
+        score: isValid ? (Math.random() * 30 + 60).toFixed(1) : 0,
+        feedback_text: isValid
           ? "Good attempt! Your answer touched on relevant concepts. Try to be more specific and structured."
-          : "No answer recorded. Try to speak clearly into the microphone.",
-        confidence_level: (Math.random() * 0.4 + 0.6).toFixed(2),
+          : "No valid answer recorded. Try to speak clearly and answer the question.",
+        confidence_level: isValid ? (Math.random() * 0.4 + 0.6).toFixed(2) : 0.95,
         mock: true,
       };
     }
