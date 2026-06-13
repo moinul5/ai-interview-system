@@ -212,6 +212,14 @@ def voice_interview_evaluate(payload: VoiceEvaluateRequest):
 def _evaluate_transcript_with_groq(
     question: str, transcript: str, expected_answer: str | None
 ) -> dict[str, Any] | None:
+    if not transcript or _is_gibberish_or_empty(transcript):
+        return {
+            "score": 0.0,
+            "feedback_text": "The response was empty, too brief, or irrelevant to the question.",
+            "improvement": "Please study the topic and record a complete, correct spoken answer.",
+            "confidence_level": 0.95,
+        }
+
     client = _groq_client()
     if not client:
         return None
@@ -227,6 +235,12 @@ Question: {question}
 Candidate's spoken transcript:
 \"\"\"{transcript}\"\"\"
 
+CRITICAL GRADING CRITERIA:
+1. Grade strictly based on the accuracy, technical correctness, and relevance of the spoken answer. Do not give high scores out of politeness.
+2. If the transcript is incorrect, irrelevant, empty, gibberish, or states "I don't know" / "no idea" / "skip" / "pass", the score MUST be 0.
+3. Compare the candidate's spoken transcript to the expected answer if provided. If the transcript fails to cover the key concepts of the expected answer, the score must be under 40.
+4. Award a score above 70 only if the response demonstrates a solid and correct understanding of the question.
+
 Return only valid JSON with this exact shape:
 {{
   "score": <number from 0.0 to 100.0>,
@@ -240,10 +254,10 @@ Return only valid JSON with this exact shape:
         completion = client.chat.completions.create(
             model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
             messages=[
-                {"role": "system", "content": "You are an expert interview evaluator. Evaluate spoken answers fairly. Return strict JSON only."},
+                {"role": "system", "content": "You are a strict, professional interview evaluator. Grade the candidate's spoken responses strictly and realistically based on content accuracy. Return strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.3,
+            temperature=0.2,
             max_tokens=800,
         )
         content = completion.choices[0].message.content or "{}"
@@ -260,18 +274,31 @@ Return only valid JSON with this exact shape:
         return None
 
 
+def _is_gibberish_or_empty(answer: str) -> bool:
+    if not answer:
+        return True
+    val = answer.strip().lower()
+    if len(val) < 8:
+        return True
+    if val in ["i don't know", "i do not know", "idk", "wrong answer", "no idea", "none", "n/a", "na", "wrong", "skip", "pass"]:
+        return True
+    # check if it's just repeated characters without spaces (e.g. asdfasdfasdfasdf)
+    if " " not in val and len(val) > 15:
+        return True
+    return False
+
+
 def _fallback_evaluate(
     question: str, transcript: str, expected_answer: str | None
 ) -> dict[str, Any]:
     """Heuristic-based fallback when Groq is unavailable."""
     transcript = transcript.strip()
-    length = len(transcript)
 
-    if not transcript:
+    if not transcript or _is_gibberish_or_empty(transcript):
         return {
             "score": 0.0,
-            "feedback_text": "No answer was recorded. Please try speaking clearly into the microphone.",
-            "improvement": "Make sure your microphone is working and speak your answer clearly.",
+            "feedback_text": "The response was empty, too brief, or irrelevant to the question.",
+            "improvement": "Please study the topic and record a complete, correct spoken answer.",
             "confidence_level": 0.95,
         }
 

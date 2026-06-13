@@ -157,6 +157,20 @@ const InterviewAI = () => {
 
   // ── Submit all answers ─────────────────────────────────────────────────────
   const submitAnswers = async () => {
+    if (answeredCount === 0) {
+      alert("Please answer at least one question before submitting.");
+      return;
+    }
+
+    const totalQuestions = questions.length;
+    const missing = totalQuestions - answeredCount;
+    if (missing > 0) {
+      const confirmSubmit = window.confirm(
+        `You have left ${missing} question${missing > 1 ? "s" : ""} unanswered. Unanswered questions will receive a score of 0. Do you want to submit anyway?`
+      );
+      if (!confirmSubmit) return;
+    }
+
     setPhase("submitting");
 
     const answersPayload = questions.map(q => ({

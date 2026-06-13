@@ -67,7 +67,7 @@ const Login = () => {
         <div className="auth-panel__content">
           <div className="auth-panel__logo">
             <span className="auth-panel__logo-icon">🤖</span>
-            <span className="auth-panel__logo-text">InterviewAI</span>
+            <span className="auth-panel__logo-text">InterviaAI</span>
           </div>
           <h2 className="auth-panel__headline">
             Ace your next<br />interview with AI
@@ -90,7 +90,7 @@ const Login = () => {
         <div className="auth-form-wrap">
           {/* Mobile logo */}
           <div className="auth-mobile-logo">
-            <span>🤖</span> InterviewAI
+            <span>🤖</span> InterviaAI
           </div>
 
           <h1 className="auth-form-wrap__title">Welcome back</h1>

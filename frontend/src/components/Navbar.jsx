@@ -49,7 +49,7 @@ const Navbar = () => {
         <span className="navbar__brand-icon">
           <MdSmartToy size={20} />
         </span>
-        <span className="navbar__brand-text">InterviewAI</span>
+        <span className="navbar__brand-text">InterviaAI</span>
       </Link>
 
       {/* Navigation Links */}

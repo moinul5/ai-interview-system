@@ -15,9 +15,9 @@ const Footer = () => {
       <div className="footer__inner">
         <p className="footer__brand">
           <MdSmartToy size={20} style={{ verticalAlign: "middle", marginRight: "6px" }} />
-          InterviewAI
+          InterviaAI
         </p>
-        <p className="footer__copy">© {year} InterviewAI. All rights reserved.</p>
+        <p className="footer__copy">© {year} InterviaAI. All rights reserved.</p>
         <ul className="footer__links">
           <li>
             <Link to="/" className="footer__link">
